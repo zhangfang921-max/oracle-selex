@@ -1,0 +1,41 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Analysis {
+  id        String   @id @default(cuid())
+  name      String
+  status    String   @default("pending") // pending, processing, completed, failed
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  rounds    Round[]
+}
+
+model Round {
+  id          String     @id @default(cuid())
+  analysisId  String
+  roundNumber Int
+  fileName    String
+  totalReads  BigInt     @default(0)
+  analysis    Analysis   @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  sequences   Sequence[]
+
+  @@unique([analysisId, roundNumber])
+}
+
+model Sequence {
+  id         String @id @default(cuid())
+  roundId    String
+  sequence   String
+  readCount  BigInt @default(0)
+  percentRead Float @default(0)
+  round      Round  @relation(fields: [roundId], references: [id], onDelete: Cascade)
+
+  @@index([roundId])
+  @@index([sequence])
+}
