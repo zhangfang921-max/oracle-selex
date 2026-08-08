@@ -167,16 +167,18 @@ export function useExportExcel() {
       g4Data,
       rnaFoldData,
       motifData,
+      clusterData,
     }: {
       analysisId: string
       enrichmentData?: EnrichmentEntry[]
       g4Data?: G4Result[]
       rnaFoldData?: RNAFoldResult[]
       motifData?: MotifAnalysis
+      clusterData?: SequenceCluster[]
     }) => {
       const { data } = await apiClient.post(
         '/analysis/export',
-        { analysisId, enrichmentData, g4Data, rnaFoldData, motifData },
+        { analysisId, enrichmentData, g4Data, rnaFoldData, motifData, clusterData },
         { responseType: 'blob', timeout: 120000 }
       )
       return data as Blob

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -9,6 +9,7 @@ import {
   BarChart3,
   CheckCircle2,
   ChevronRight,
+  Activity,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,6 +17,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { FadeIn } from '@/components/MotionPrimitives'
 import { OverviewPanel } from '@/components/analysis/OverviewPanel'
 import { ClusterPanel } from '@/components/analysis/ClusterPanel'
+import { ClusterEvaluationFigure } from '@/components/analysis/ClusterEvaluationFigure'
+import { ClusterEvaluationContent } from '@/components/analysis/ClusterEvaluationContent'
+import { ClusterNetworkGraph } from '@/components/analysis/ClusterNetworkGraph'
 import {
   useAnalysisDetail,
   useCluster,
@@ -95,12 +99,27 @@ export default function AnalysisPage() {
   // Filter controls for clustering
   const [minReadCount, setMinReadCount] = useState(2)
   const [topN, setTopN] = useState(500)
-  const [clusterMode, setClusterMode] = useState<'sequence' | 'structure' | 'auto-optimal'>('auto-optimal')
+  const [clusterMode, setClusterMode] = useState<'sequence' | 'auto-optimal'>('auto-optimal')
   const [identityThreshold, setIdentityThreshold] = useState(0.7)
-  const [optimalMethod, setOptimalMethod] = useState<'auto' | 'hierarchical' | 'dbscan' | 'hdbscan' | 'kmeans' | 'gmm' | 'spectral'>('auto')
+  const [optimalMethod, setOptimalMethod] = useState<'auto' | 'hierarchical' | 'kmeans' | 'gmm' | 'spectral'>('auto')
   const [primerMode, setPrimerMode] = useState<'auto' | 'manual'>('auto')
   const [forwardPrimer, setForwardPrimer] = useState('')
   const [reversePrimer, setReversePrimer] = useState('')
+  // Profile mode settings
+  const [nPermutations, setNPermutations] = useState(1000)
+  const [significanceThreshold, setSignificanceThreshold] = useState(0.05)
+  // Selection criterion for auto-optimal modes
+  const [selectionCriterion, setSelectionCriterion] = useState<'silhouette' | 'davies_bouldin' | 'calinski_harabasz'>('silhouette')
+  // Min clusters for DB/CH (prevents collapsing to K=2)
+  const [minClusters, setMinClusters] = useState(2)
+  // Two-stage clustering: high-abundance anchor threshold (0=disabled, 0-1=percentile, >=2=absolute)
+  const [abundanceThreshold, setAbundanceThreshold] = useState(0)
+  // Abundance-weighted clustering: weight sequences by read count
+  // 'off' = equal weight, 'linear' = raw reads, 'sqrt' = sqrt(read_count), 'log' = log(1+read_count)
+  const [weightingScheme, setWeightingScheme] = useState<string>('off')
+
+  // Shared cluster visibility slider (used by evaluation + figure)
+  const [maxVisibleClusters, setEvalMaxClusters] = useState(0)
 
   // Clustering metadata (which algorithm was selected, quality, etc.)
   interface ClusterMeta {
@@ -111,6 +130,23 @@ export default function AnalysisPage() {
     kmerSize: number
     featureMode: string
     variableLen: number
+    algorithmResults?: {
+      method: string
+      K: number
+      silhouette: number
+    }[]
+    permutation?: {
+      p_values: number[]
+      significant: boolean[]
+      cluster_sizes: number[]
+      threshold: number
+    }
+    abundance?: {
+      enrichment_scores: number[]
+      enrichment_pvalues: number[]
+      model: string
+      parameters: { mu: number; var: number; r: number }
+    }
   }
   const [clusterMeta, setClusterMeta] = useState<ClusterMeta | null>(null)
 
@@ -126,6 +162,41 @@ export default function AnalysisPage() {
   // Mutations
   const clusterMutation = useCluster()
   const exportMutation = useExportExcel()
+
+  // Background permutation test runner for sequence/structure modes
+  const permRunner = useCallback(async (sequences: string[], clusters: SequenceCluster[]) => {
+    try {
+      const seqList: string[] = []
+      const clusterIds: number[] = []
+      clusters.forEach((c) => {
+        c.members.forEach((m) => {
+          seqList.push(m.sequence)
+          clusterIds.push(c.id)
+        })
+        if (c.members.length === 0) {
+          seqList.push(c.representative)
+          clusterIds.push(c.id)
+        }
+      })
+      const resp = await fetch('/api/analysis/cluster_permutation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sequences: seqList,
+          clusterIds,
+          nPermutations: 1000,
+          featureMode: 'kmer',
+        }),
+      })
+      if (!resp.ok) return
+      const data = await resp.json()
+      if (data.success && data.permutation) {
+        setClusterMeta((prev) => prev ? { ...prev, permutation: data.permutation } : null)
+      }
+    } catch {
+      // Silently ignore — permutation test is optional
+    }
+  }, [clusterMode])
 
   // Build sequence entries directly from analysis rounds (sorted by read count)
   const getSequenceEntries = useCallback(() => {
@@ -193,6 +264,7 @@ export default function AnalysisPage() {
         steps = updateStep(steps, 0, { status: 'running' })
         setClusterProgress([...steps])
         const sequences = entries.map((e) => e.sequence)
+        const readCounts = entries.map((e) => e.totalReads)
         await new Promise((r) => setTimeout(r, 300))
         steps = updateStep(steps, 0, { status: 'done', detail: `${sequences.length} sequences ready` })
         setClusterProgress([...steps])
@@ -210,7 +282,13 @@ export default function AnalysisPage() {
             sequences,
             method: optimalMethod,
             maxClusters: 30,
+            ...(minClusters > 2 ? { minClusters } : {}),
             featureMode: 'auto',
+            doPermutationTest: true,
+            nPermutations: 1000,
+            selectionCriterion,
+            readCounts,
+            ...(abundanceThreshold > 0 ? { abundanceThreshold } : {}),
             ...(primerMode === 'manual' && forwardPrimer.trim() ? { forwardPrimer: forwardPrimer.trim() } : {}),
             ...(primerMode === 'manual' && reversePrimer.trim() ? { reversePrimer: reversePrimer.trim() } : {}),
           }),
@@ -225,13 +303,16 @@ export default function AnalysisPage() {
 
         // Store clustering metadata for display in results
         setClusterMeta({
-          method: optResult.method,
+          method: `Auto-Optimal ML (${optResult.method})`,
           silhouetteScore: optResult.silhouetteScore,
           quality: optResult.quality || 'unknown',
           numClusters: optResult.numClusters,
           kmerSize: optResult.kmerSize,
           featureMode: optResult.featureMode,
           variableLen: optResult.variableLen,
+          ...(optResult.permutation ? { permutation: optResult.permutation } : {}),
+          ...(optResult.abundance ? { abundance: optResult.abundance } : {}),
+          ...(optResult.algorithmResults ? { algorithmResults: optResult.algorithmResults } : {}),
         })
 
         // Step 4+5: G4 + RNA (handled by backend cluster endpoint)
@@ -252,7 +333,7 @@ export default function AnalysisPage() {
 
         await new Promise((r) => setTimeout(r, 600))
         setClusterData(result)
-        toast.success(`Optimal: ${optResult.numClusters} clusters (${optResult.method}, silhouette=${optResult.silhouetteScore?.toFixed(3)})`)
+        toast.success(`Auto-Optimal ML: ${optResult.numClusters} clusters (${optResult.method}, silhouette=${optResult.silhouetteScore?.toFixed(3)})`)
         setActiveTab('clusters')
       } catch (err: any) {
         const failIdx = steps.findIndex((s) => s.status === 'running')
@@ -267,7 +348,7 @@ export default function AnalysisPage() {
     } else {
       let steps: ProgressStep[] = [
         { label: 'Preparing sequences', status: 'pending', detail: `${entries.length} sequences` },
-        { label: 'Running clustering', status: 'pending', detail: `${clusterMode} mode, threshold ${(identityThreshold * 100).toFixed(0)}%` },
+        { label: 'Running clustering', status: 'pending', detail: `${clusterMode === 'sequence' ? 'Sequence Identity' : 'Structure dot-bracket'}, threshold ${(identityThreshold * 100).toFixed(0)}%` },
         { label: 'G4 screening & RNA folding', status: 'pending' },
         { label: 'Finalizing results', status: 'pending' },
       ]
@@ -293,15 +374,18 @@ export default function AnalysisPage() {
         await new Promise((r) => setTimeout(r, 600))
         setClusterData(result)
         setClusterMeta({
-          method: clusterMode === 'sequence' ? 'Sequence Identity' : 'Structure (dot-bracket)',
+          method: clusterMode === 'sequence' ? 'Sequence Identity' : 'Structure dot-bracket',
           silhouetteScore: -1, // Not applicable for greedy methods
           quality: 'n/a',
           numClusters: result.length,
           kmerSize: 0,
-          featureMode: 'n/a',
+          featureMode: 'kmer',
           variableLen: 0,
         })
-        toast.success(`Grouped into ${result.length} clusters (${clusterMode} mode)`)
+
+        // Kick off permutation test in background (non-blocking)
+        permRunner(entries.map((e: any) => e.sequence), result)
+        toast.success(`Grouped into ${result.length} clusters (${clusterMode === 'sequence' ? 'Sequence Identity' : 'Structure dot-bracket'})`)
         setActiveTab('clusters')
       } catch {
         const failIdx = steps.findIndex((s) => s.status === 'running')
@@ -314,14 +398,24 @@ export default function AnalysisPage() {
         setTimeout(() => setIsOptimalRunning(false), 1500)
       }
     }
-  }, [getSequenceEntries, clusterMutation, clusterMode, identityThreshold, optimalMethod, forwardPrimer, reversePrimer, updateStep])
+  }, [getSequenceEntries, clusterMutation, clusterMode, identityThreshold, optimalMethod, forwardPrimer, reversePrimer, updateStep, permRunner])
 
   const handleExport = useCallback(async () => {
     if (!analysisId) return
     try {
+      const entries = getSequenceEntries()
+      const enrichmentForExport = entries.map((e) => ({
+        sequence: e.sequence,
+        rounds: e.rounds || [],
+        enrichmentFold: e.enrichmentFold ?? null,
+        maxPercentRead: e.maxPercentRead,
+        totalReads: e.totalReads,
+        presentInRounds: e.presentInRounds,
+      }))
       const blob = await exportMutation.mutateAsync({
         analysisId,
-        enrichmentData: [],
+        enrichmentData: enrichmentForExport,
+        clusterData,
       })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -333,7 +427,46 @@ export default function AnalysisPage() {
     } catch {
       toast.error('Export failed')
     }
-  }, [analysisId, analysis, exportMutation])
+  }, [analysisId, analysis, exportMutation, getSequenceEntries, clusterData])
+
+  // ── Z-score sorted data for Evaluation tab (consistent with Cluster Details) ──
+  const evaluationData = useMemo(() => {
+    const scores = clusterMeta?.abundance?.enrichment_scores
+    if (!scores || scores.length === 0) return clusterData
+    // Sort by Z-score descending, remap cluster IDs to rank
+    return [...clusterData]
+      .sort((a, b) => {
+        const za = scores[a.id - 1] ?? -Infinity
+        const zb = scores[b.id - 1] ?? -Infinity
+        return zb - za
+      })
+      .map((cluster, idx) => ({
+        ...cluster,
+        id: idx + 1,  // Z-score rank becomes the new ID
+        members: cluster.members.map(m => ({ ...m })),
+      }))
+  }, [clusterData, clusterMeta])
+
+  // ── Remapped permutation data (indexed by Z-score rank, not original cluster ID) ──
+  const evaluationPermutation = useMemo(() => {
+    const perm = clusterMeta?.permutation
+    const scores = clusterMeta?.abundance?.enrichment_scores
+    if (!perm || !scores || scores.length === 0) return perm
+    // Build Z-score order mapping: original-id-1 → new-rank
+    const order = clusterData
+      .map((c, i) => ({ id: c.id, score: scores[c.id - 1] ?? -Infinity }))
+      .sort((a, b) => b.score - a.score)
+      .map(x => x.id - 1)  // 0-based original indices
+    return {
+      p_values: order.map(i => perm.p_values[i] ?? 0),
+      significant: order.map(i => perm.significant[i] ?? false),
+      cluster_sizes: order.map(i => perm.cluster_sizes[i] ?? 0),
+      threshold: perm.threshold,
+      nPermutations: (perm as any).nPermutations,
+      null_distributions: (perm as any).null_distributions ? order.map(i => (perm as any).null_distributions[i] ?? []) : undefined,
+      observed_compactness: (perm as any).observed_compactness ? order.map(i => (perm as any).observed_compactness[i] ?? 0) : undefined,
+    }
+  }, [clusterData, clusterMeta])
 
   // Workflow steps (simplified to 2)
   const workflowSteps: WorkflowStep[] = [
@@ -390,7 +523,7 @@ export default function AnalysisPage() {
             </button>
             <div>
               <div className="flex items-center" style={{ gap: 'var(--spacing-xs)' }}>
-                <span className="text-xs font-semibold text-primary opacity-70 tracking-widest uppercase">ORACLE</span>
+                <span className="text-xs font-semibold text-primary tracking-widest uppercase">ORACLE</span>
                 <span className="text-xs text-muted-foreground">/</span>
                 <h1 className="font-bold" style={{ fontSize: 'var(--font-size-headline)', fontFamily: 'var(--font-family-heading)' }}>
                   {analysis.name}
@@ -459,6 +592,18 @@ export default function AnalysisPage() {
                 {clusterData.length > 0 && (
                   <span className="ml-1.5 text-xs opacity-70 font-normal">({clusterData.length})</span>
                 )}
+              </TabsTrigger>
+              <TabsTrigger
+                value="evaluation"
+                className="rounded-lg cursor-pointer font-semibold data-[state=active]:bg-white data-[state=active]:shadow-sm"
+                style={{
+                  fontSize: 'var(--font-size-body)',
+                  padding: '10px 24px',
+                  display: (clusterData.length > 0 && clusterMeta) ? undefined : 'none',
+                }}
+              >
+                <Activity className="w-5 h-5 mr-2" />
+                Evaluation
               </TabsTrigger>
             </TabsList>
           </FadeIn>
@@ -560,8 +705,8 @@ export default function AnalysisPage() {
                     </p>
                     <p className="text-muted-foreground" style={{ fontSize: 'var(--font-size-label)', marginTop: 4 }}>
                       {clusterMode === 'auto-optimal'
-                        ? `ML-optimized clustering using k-mer features. Auto-selects algorithm and cluster count for best separation (min reads: ${minReadCount}, top ${topN}).`
-                        : `Group similar sequences by identity or structure (threshold: ${(identityThreshold * 100).toFixed(0)}%, min reads: ${minReadCount}, top ${topN}).`}
+                        ? `Auto-Optimal ML — k-mer features, auto-selects best algorithm & K (min reads: ${minReadCount}, top ${topN}).`
+                        : `Sequence Identity — Levenshtein edit distance clustering (threshold: ${(identityThreshold * 100).toFixed(0)}%, min reads: ${minReadCount}, top ${topN}).`}
                     </p>
                   </div>
                   <div className="flex items-center flex-wrap" style={{ gap: 12 }}>
@@ -570,18 +715,20 @@ export default function AnalysisPage() {
                         <label className="text-xs text-muted-foreground whitespace-nowrap">Mode</label>
                         <select
                           value={clusterMode}
-                          onChange={(e) => setClusterMode(e.target.value as 'sequence' | 'structure' | 'auto-optimal')}
+                          onChange={(e) => setClusterMode(e.target.value as any)}
                           className="h-8 rounded-md border border-input bg-background px-2 text-xs cursor-pointer"
                         >
-                          <option value="auto-optimal">Auto-Optimal (ML)</option>
-                          <option value="sequence">Sequence Identity</option>
-                          <option value="structure">Structure (dot-bracket)</option>
+                          <optgroup label="Sequence">
+                            <option value="sequence">Manual (Sequence Identity)</option>
+                            <option value="auto-optimal">Auto-Optimal ML</option>
+                          </optgroup>
                         </select>
                       </div>
                       <span className="text-[10px] text-muted-foreground" style={{ maxWidth: 220 }}>
-                        {clusterMode === 'auto-optimal' && 'Uses k-mer features to find optimal grouping via ML algorithms'}
-                        {clusterMode === 'sequence' && 'Groups sequences by pairwise edit distance (Levenshtein)'}
-                        {clusterMode === 'structure' && 'Groups by predicted RNA secondary structure similarity'}
+                        {clusterMode === 'auto-optimal' && 'Auto-Optimal ML — k-mer features + ML auto-select K'}
+                        {clusterMode === 'sequence' && 'Sequence Identity — Levenshtein edit distance'}
+
+
                       </span>
                     </div>
                     {clusterMode === 'auto-optimal' && (
@@ -595,8 +742,6 @@ export default function AnalysisPage() {
                           >
                             <option value="auto">Auto (best of all)</option>
                             <option value="hierarchical">Hierarchical</option>
-                            <option value="dbscan">DBSCAN (density)</option>
-                            <option value="hdbscan">HDBSCAN (adaptive density)</option>
                             <option value="kmeans">K-Means</option>
                             <option value="gmm">GMM (Gaussian Mixture)</option>
                             <option value="spectral">Spectral</option>
@@ -605,15 +750,93 @@ export default function AnalysisPage() {
                         <span className="text-[10px] text-muted-foreground" style={{ maxWidth: 320 }}>
                           {optimalMethod === 'auto' && 'Tries all 6 algorithms + hybrid features, picks highest silhouette'}
                           {optimalMethod === 'hierarchical' && 'Merges nearest clusters bottom-up; tries ward/average/complete linkage'}
-                          {optimalMethod === 'dbscan' && 'Density-based; auto-detects K; handles noise/outliers'}
-                          {optimalMethod === 'hdbscan' && 'Adaptive density; finds clusters of varying densities automatically'}
+                          {false && 'Density-based; auto-detects K; handles noise/outliers'}
+                          {false && 'Adaptive density; finds clusters of varying densities automatically'}
                           {optimalMethod === 'kmeans' && 'Fixed K partitioning; fast but assumes spherical clusters'}
                           {optimalMethod === 'gmm' && 'Gaussian Mixture; handles elliptical/overlapping clusters in converged pools'}
                           {optimalMethod === 'spectral' && 'Graph-based; excellent for non-convex cluster shapes'}
                         </span>
                       </div>
                     )}
-                    {clusterMode !== 'auto-optimal' && (
+                    {/* Selection criterion dropdown (auto-optimal modes only) */}
+                    {clusterMode === 'auto-optimal' && (
+                      <div className="flex flex-col" style={{ gap: 4 }}>
+                        <div className="flex items-center" style={{ gap: 6 }}>
+                          <label className="text-xs text-muted-foreground whitespace-nowrap">Selection Criterion</label>
+                          <select
+                            value={selectionCriterion}
+                            onChange={(e) => setSelectionCriterion(e.target.value as any)}
+                            className="h-8 rounded-md border border-input bg-background px-2 text-xs cursor-pointer"
+                          >
+                            <option value="silhouette">Silhouette</option>
+                            <option value="davies_bouldin">Davies-Bouldin</option>
+                            <option value="calinski_harabasz">Calinski-Harabasz</option>
+                          </select>
+                        </div>
+                        <span className="text-[10px] text-muted-foreground" style={{ maxWidth: 220 }}>
+                          {selectionCriterion === 'silhouette' && 'Prefers compact spherical clusters. Higher = better.'}
+                          {selectionCriterion === 'davies_bouldin' && 'No shape assumption. Lower = better. Stable across algorithms.'}
+                          {selectionCriterion === 'calinski_harabasz' && 'Between/within-cluster variance ratio. Prefers well-separated clusters.'}
+                        </span>
+                      </div>
+                    )}
+                    {/* Min clusters (auto-optimal: prevents DB/CH collapsing to K=2) */}
+                    {clusterMode === 'auto-optimal' && (
+                      <div className="flex items-center" style={{ gap: 6 }}>
+                        <label className="text-xs text-muted-foreground whitespace-nowrap">Min Clusters</label>
+                        <input
+                          type="number" min={2} max={30} value={minClusters}
+                          onChange={(e) => setMinClusters(Math.max(2, parseInt(e.target.value) || 2))}
+                          className="h-8 w-16 rounded-md border border-input bg-background px-2 text-xs"
+                        />
+                      </div>
+                    )}
+{false && (
+                      <div className="flex items-center flex-wrap" style={{ gap: 12 }}>
+                        <div className="flex items-center" style={{ gap: 6 }}>
+                          <label className="text-xs text-muted-foreground whitespace-nowrap">Permutations</label>
+                          <select value={nPermutations} onChange={(e) => setNPermutations(Number(e.target.value))}
+                            className="h-8 rounded-md border border-input bg-background px-2 text-xs cursor-pointer">
+                            <option value={200}>200</option>
+                            <option value={500}>500</option>
+                            <option value={1000}>1000</option>
+                            <option value={2000}>2000</option>
+                          </select>
+                        </div>
+                        <div className="flex items-center" style={{ gap: 6 }}>
+                          <label className="text-xs text-muted-foreground whitespace-nowrap">p threshold</label>
+                          <select value={significanceThreshold} onChange={(e) => setSignificanceThreshold(Number(e.target.value))}
+                            className="h-8 rounded-md border border-input bg-background px-2 text-xs cursor-pointer">
+                            <option value={0.01}>0.01</option>
+                            <option value={0.05}>0.05</option>
+                            <option value={0.1}>0.10</option>
+                          </select>
+                        </div>
+                      </div>
+                    )}
+                    {/* Selection criterion dropdown (profile mode) */}
+{false && (
+                      <div className="flex flex-col" style={{ gap: 4 }}>
+                        <div className="flex items-center" style={{ gap: 6 }}>
+                          <label className="text-xs text-muted-foreground whitespace-nowrap">Selection Criterion</label>
+                          <select
+                            value={selectionCriterion}
+                            onChange={(e) => setSelectionCriterion(e.target.value as any)}
+                            className="h-8 rounded-md border border-input bg-background px-2 text-xs cursor-pointer"
+                          >
+                            <option value="silhouette">Silhouette</option>
+                            <option value="davies_bouldin">Davies-Bouldin</option>
+                            <option value="calinski_harabasz">Calinski-Harabasz</option>
+                          </select>
+                        </div>
+                        <span className="text-[10px] text-muted-foreground" style={{ maxWidth: 220 }}>
+                          {selectionCriterion === 'silhouette' && 'Prefers compact spherical clusters. Higher = better.'}
+                          {selectionCriterion === 'davies_bouldin' && 'No shape assumption. Lower = better. Stable across algorithms.'}
+                          {selectionCriterion === 'calinski_harabasz' && 'Between/within-cluster variance ratio. Prefers well-separated clusters.'}
+                        </span>
+                      </div>
+                    )}
+{(clusterMode === 'sequence') && (
                       <div className="flex items-center" style={{ gap: 6 }}>
                         <label className="text-xs text-muted-foreground whitespace-nowrap">Threshold</label>
                         <input
@@ -649,6 +872,44 @@ export default function AnalysisPage() {
                         className="w-20 h-8 text-xs"
                       />
                     </div>
+                    <div className="flex items-center" style={{ gap: 6 }}>
+                      <label className="text-xs text-muted-foreground whitespace-nowrap">
+                        {abundanceThreshold === 0 ? 'Abundance' : `Top ${Math.round((1 - abundanceThreshold) * 100)}%`}
+                      </label>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        value={abundanceThreshold === 0 ? 0 : Math.round((1 - abundanceThreshold) * 100)}
+                        onChange={(e) => {
+                          const pct = Number(e.target.value)
+                          setAbundanceThreshold(pct === 0 ? 0 : 1 - pct / 100)
+                        }}
+                        className="w-20 h-2 cursor-pointer accent-primary"
+                      />
+                      <span className="text-xs font-mono text-muted-foreground w-10">
+                        {abundanceThreshold === 0 ? 'off' : `Top ${Math.round((1 - abundanceThreshold) * 100)}%`}
+                      </span>
+                    </div>
+                    {/* Abundance weighting scheme selector (Profile mode only — ML mode uses post-clustering enrichment) */}
+{false && (
+                    <div className="flex items-center" style={{ gap: 4 }}>
+                      <label className="text-xs text-muted-foreground whitespace-nowrap">Weight:</label>
+                      <select
+                        value={weightingScheme}
+                        onChange={(e) => setWeightingScheme(e.target.value)}
+                        className="h-6 text-xs border border-border rounded bg-background px-1.5 cursor-pointer"
+                        title="How read counts influence clustering. Off: equal vote per unique sequence. Sqrt: mild abundance bias (recommended). Log: weakest bias. Linear: raw read count weighting."
+                      >
+                        <option value="off">Off</option>
+                        <option value="sqrt">Sqrt</option>
+                        <option value="log">Log</option>
+                        <option value="linear">Linear</option>
+                      </select>
+                      <span className="text-[10px] text-muted-foreground/60"
+                        title="Off = structure space exploration (equal vote). Sqrt = mild abundance bias (recommended). Log = weak bias. Linear = strongest abundance signal.">&#9432;</span>
+                    </div>
+                    )}
                     <Button onClick={runClustering} className="cursor-pointer" size="sm">
                       <Layers className="w-4 h-4 mr-1" />
                       Run Clustering
@@ -718,7 +979,51 @@ export default function AnalysisPage() {
               onRunCluster={runClustering}
               onGoToEnrichment={() => setActiveTab('overview')}
               clusterMeta={clusterMeta}
+              permutation={evaluationPermutation}
             />
+          </TabsContent>
+
+          <TabsContent value="evaluation">
+            {clusterData.length > 0 && clusterMeta ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                {/* Cluster Quality Evaluation: silhouette, permutation, dim-reduction */}
+                <ClusterEvaluationContent
+                  data={evaluationData}
+                  featureMode={clusterMeta?.featureMode}
+                  silhouetteScore={clusterMeta?.silhouetteScore ?? -1}
+                  quality={clusterMeta?.quality ?? 'n/a'}
+                  permutation={evaluationPermutation}
+                  algorithmResults={clusterMeta?.algorithmResults}
+                  maxVisibleClusters={maxVisibleClusters}
+                  onMaxVisibleClustersChange={setEvalMaxClusters}
+                />
+
+                {/* Approach A: Structure-Profile UMAP + Quality Overlay */}
+                <ClusterEvaluationFigure
+                  data={evaluationData}
+                  silhouetteScore={clusterMeta?.silhouetteScore ?? -1}
+                  quality={clusterMeta?.quality ?? 'n/a'}
+                  permutation={evaluationPermutation}
+                  featureMode={clusterMeta?.featureMode}
+                  maxVisibleClusters={maxVisibleClusters}
+                />
+
+                {/* Approach B: Network Graph */}
+                <ClusterNetworkGraph
+                  data={evaluationData}
+                  silhouetteScore={clusterMeta?.silhouetteScore ?? -1}
+                  quality={clusterMeta?.quality ?? 'n/a'}
+                  permutation={evaluationPermutation}
+                  featureMode={clusterMeta?.featureMode}
+                  maxVisibleClusters={maxVisibleClusters}
+                />
+              </div>
+            ) : (
+              <div className="rounded-xl border border-dashed border-border bg-muted/20 flex flex-col items-center justify-center text-center" style={{ padding: '60px 20px', gap: 12 }}>
+                <p className="text-sm font-semibold text-muted-foreground">No clustering data available</p>
+                <p className="text-xs text-muted-foreground">Run clustering with Auto-Optimal ML mode to see quality evaluation charts.</p>
+              </div>
+            )}
           </TabsContent>
         </Tabs>
       </div>

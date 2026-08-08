@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { ChevronDown, ChevronRight, Layers, Dna, Users, TrendingUp, ArrowRight, Loader2, Activity, FlaskConical, FileSpreadsheet } from 'lucide-react'
+import { ChevronDown, ChevronRight, Layers, Dna, Users, TrendingUp, ArrowRight, Loader2, Activity, FlaskConical, FileSpreadsheet, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { FadeIn, Stagger } from '@/components/MotionPrimitives'
 import { ClusterCharts } from './ClusterCharts'
@@ -68,6 +68,114 @@ function exportClusterCSV(data: SequenceCluster[]) {
   URL.revokeObjectURL(url)
 }
 
+/** Export cluster data as JSON (full detail, per-member sequences included) */
+function exportClusterJSON(data: SequenceCluster[], clusterMeta?: ClusterMeta | null) {
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    totalClusters: data.length,
+    totalSequences: data.reduce((s, c) => s + c.size, 0),
+    clusterMeta: clusterMeta || null,
+    clusters: data.map((c, i) => ({
+      rank: i + 1,
+      id: c.id,
+      representative: c.representative,
+      size: c.size,
+      avgEnrichmentFold: c.avgEnrichmentFold === Infinity ? 'Infinity' : c.avgEnrichmentFold,
+      maxEnrichmentFold: c.maxEnrichmentFold === Infinity ? 'Infinity' : c.maxEnrichmentFold,
+      avgMaxPercentRead: c.avgMaxPercentRead,
+      g4Score: c.g4Score,
+      g4Risk: c.g4Risk,
+      cGcC: c.cGcC,
+      g4Hunter: c.g4Hunter ?? 0,
+      g4NN: c.g4NN ?? 0,
+      numG4Motifs: c.numG4Motifs,
+      g4Motifs: c.g4Motifs || [],
+      gRichRegions: c.gRichRegions || [],
+      rnaFoldWithG4: c.rnaFold ? {
+        dotBracket: c.rnaFold.dotBracket,
+        mfe: c.rnaFold.mfe,
+        numBasePairs: c.rnaFold.numBasePairs,
+        hasGQuad: c.rnaFold.hasGQuad,
+        engine: c.rnaFold.engine,
+      } : null,
+      rnaFoldWithoutG4: c.rnaFoldNoG4 ? {
+        dotBracket: c.rnaFoldNoG4.dotBracket,
+        mfe: c.rnaFoldNoG4.mfe,
+        numBasePairs: c.rnaFoldNoG4.numBasePairs,
+        engine: c.rnaFoldNoG4.engine,
+      } : null,
+      members: c.members.map((m) => ({
+        sequence: m.sequence,
+        enrichmentFold: m.enrichmentFold === Infinity ? 'Infinity' : m.enrichmentFold,
+        maxPercentRead: m.maxPercentRead,
+        totalReads: m.totalReads,
+        presentInRounds: m.presentInRounds,
+        similarity: m.similarity,
+      })),
+    })),
+  }
+
+  const jsonStr = JSON.stringify(payload, null, 2)
+  const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `cluster_full_data_${data.length}clusters.json`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+/** Export per-member CSV for downstream analysis (cluster-level graph, stats).
+ *  Columns: sequence, cluster, read_count, z_score, significant */
+function exportMembersCSV(
+  data: SequenceCluster[],
+  permutation?: { p_values: number[]; significant: boolean[]; cluster_sizes: number[]; threshold: number } | null
+) {
+  const headers = ['sequence', 'cluster', 'read_count', 'z_score', 'significant']
+
+  const rows: string[][] = []
+  data.forEach((c, ci) => {
+    const sig = permutation?.significant?.[ci] ?? false
+    const members = c.members
+    if (members.length === 0) return
+
+    // Compute per-cluster z-scores: (read_count - mean) / std
+    const counts = members.map(m => m.totalReads || 0)
+    const mean = counts.reduce((a, b) => a + b, 0) / counts.length
+    const variance = counts.reduce((s, v) => s + (v - mean) ** 2, 0) / Math.max(counts.length, 1)
+    const std = Math.sqrt(variance) || 1  // avoid div-by-zero
+
+    members.forEach((m) => {
+      const rc = m.totalReads || 0
+      const z = (rc - mean) / std
+      rows.push([
+        m.sequence,
+        String(c.id),
+        String(rc),
+        z.toFixed(4),
+        sig ? '1' : '0',
+      ])
+    })
+  })
+
+  const csvContent = [
+    headers.join(','),
+    ...rows.map(row => row.map(v =>
+      v.includes(',') || v.includes('"') || v.includes('\n')
+        ? `"${v.replace(/"/g, '""')}"`
+        : v
+    ).join(',')),
+  ].join('\n')
+
+  const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `cluster_members_${data.length}clusters.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 interface ClusterMeta {
   method: string
   silhouetteScore: number
@@ -76,6 +184,18 @@ interface ClusterMeta {
   kmerSize: number
   featureMode: string
   variableLen: number
+  permutation?: {
+    p_values: number[]
+    significant: boolean[]
+    cluster_sizes: number[]
+    threshold: number
+  }
+  abundance?: {
+    enrichment_scores: number[]
+    enrichment_pvalues: number[]
+    model: string
+    parameters: { mu: number; var: number; r: number }
+  }
 }
 
 interface ClusterPanelProps {
@@ -85,6 +205,12 @@ interface ClusterPanelProps {
   onRunCluster?: () => void
   onGoToEnrichment?: () => void
   clusterMeta?: ClusterMeta | null
+  permutation?: {
+    p_values: number[]
+    significant: boolean[]
+    cluster_sizes: number[]
+    threshold: number
+  } | null
 }
 
 /** Count how many G4RNA Screener scores pass their thresholds */
@@ -96,7 +222,7 @@ function g4PassCount(cluster: SequenceCluster): number {
   return count
 }
 
-function ClusterCard({ cluster, rank }: { cluster: SequenceCluster; rank: number }) {
+function ClusterCard({ cluster, rank, enrichmentScore, enrichmentPvalue }: { cluster: SequenceCluster; rank: number; enrichmentScore?: number; enrichmentPvalue?: number }) {
   const [expanded, setExpanded] = useState(false)
 
   const passCount = g4PassCount(cluster)
@@ -158,6 +284,25 @@ function ClusterCard({ cluster, rank }: { cluster: SequenceCluster; rank: number
                     <Users size={13} />
                     {cluster.size} member{cluster.size !== 1 ? 's' : ''}
                   </span>
+                  {enrichmentScore !== undefined && (
+                    <span
+                      className={`flex items-center font-medium cursor-help ${enrichmentScore > 0 ? 'text-emerald-600' : enrichmentScore < 0 ? 'text-red-500' : 'text-muted-foreground'}`}
+                      style={{ gap: 3 }}
+                      title={`Z-score: how many standard deviations this cluster's total read count deviates from the random expectation under a negative binomial model.
+
+Z > 0 = enriched (more reads than expected by chance).
+Z < 0 = depleted (fewer reads than expected by chance).
+|Z| > 2 ≈ p < 0.05, |Z| > 3 ≈ p < 0.003.
+
+Clusters are sorted by Z-score descending — the most significantly enriched clusters appear first.`}
+                    >
+                      <TrendingUp size={12} />
+                      Z={enrichmentScore.toFixed(1)}
+                      {enrichmentPvalue !== undefined && enrichmentPvalue < 0.05 && (
+                        <span className="text-[10px] opacity-70">*</span>
+                      )}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -724,6 +869,7 @@ export function ClusterPanel({
   onRunCluster,
   onGoToEnrichment,
   clusterMeta,
+  permutation,
 }: ClusterPanelProps) {
   const [filter, setFilter] = useState<FilterCategory>('all')
 
@@ -793,6 +939,15 @@ export function ClusterPanel({
     return true
   })
 
+  // Sort by enrichment Z-score descending when abundance data is available
+  const sorted = clusterMeta?.abundance?.enrichment_scores
+    ? [...filtered].sort((a, b) => {
+        const za = clusterMeta.abundance!.enrichment_scores[a.id - 1] ?? -Infinity
+        const zb = clusterMeta.abundance!.enrichment_scores[b.id - 1] ?? -Infinity
+        return zb - za
+      })
+    : filtered
+
   return (
     <div>
       {/* Section header — glass style */}
@@ -812,17 +967,38 @@ export function ClusterPanel({
                 Results
               </h2>
               <p className="text-muted-foreground" style={{ fontSize: 'var(--font-size-label)', marginTop: 4 }}>
-                Cluster analysis with G4 screening and RNA structure prediction
+                Clusters sorted by Z-score (enrichment significance). Hover over Z values for explanation.
               </p>
             </div>
-            <button
-              onClick={() => exportClusterCSV(data)}
-              className="flex items-center font-medium rounded-lg border border-border/50 hover:bg-muted/50 transition-colors cursor-pointer"
-              style={{ padding: '8px 16px', gap: 6, fontSize: 'var(--font-size-small)', background: 'var(--glass-bg)', backdropFilter: 'blur(8px)' }}
-            >
-              <FileSpreadsheet size={15} />
-              Export CSV
-            </button>
+            <div className="flex items-center" style={{ gap: 6 }}>
+              <button
+                onClick={() => exportClusterCSV(data)}
+                className="flex items-center font-medium rounded-lg border border-border/50 hover:bg-muted/50 transition-colors cursor-pointer"
+                style={{ padding: '8px 16px', gap: 6, fontSize: 'var(--font-size-small)', background: 'var(--glass-bg)', backdropFilter: 'blur(8px)' }}
+                title="Export summary CSV (cluster-level, 17 columns)"
+              >
+                <FileSpreadsheet size={15} />
+                CSV
+              </button>
+              <button
+                onClick={() => exportClusterJSON(data, clusterMeta)}
+                className="flex items-center font-medium rounded-lg border border-primary/30 hover:bg-primary/5 transition-colors cursor-pointer"
+                style={{ padding: '8px 16px', gap: 6, fontSize: 'var(--font-size-small)', background: 'var(--glass-bg)', backdropFilter: 'blur(8px)', color: 'var(--primary)' }}
+                title="Export full data as JSON (per-member sequences, G4 motifs, RNA structures)"
+              >
+                <Download size={15} />
+                JSON (Full)
+              </button>
+              <button
+                onClick={() => exportMembersCSV(data, permutation)}
+                className="flex items-center font-medium rounded-lg border border-border/50 hover:bg-muted/50 transition-colors cursor-pointer"
+                style={{ padding: '8px 16px', gap: 6, fontSize: 'var(--font-size-small)', background: 'var(--glass-bg)', backdropFilter: 'blur(8px)' }}
+                title="Export per-member CSV (sequence, cluster, read_count, z_score, significant) — for downstream cluster-level graph"
+              >
+                <FileSpreadsheet size={15} />
+                Members CSV
+              </button>
+            </div>
           </div>
         </div>
       </FadeIn>
@@ -850,19 +1026,20 @@ export function ClusterPanel({
                 </span>
               </div>
 
-              {clusterMeta.silhouetteScore >= 0 && (
+              {clusterMeta.silhouetteScore !== undefined && (
                 <>
                   <span className="w-px h-4 bg-border" />
                   <div className="flex items-center" style={{ gap: 6 }}>
                     <span className="text-xs text-muted-foreground font-medium">Silhouette:</span>
                     <span
                       className={`text-sm font-bold tabular-nums ${
+                        clusterMeta.silhouetteScore < 0 ? 'text-muted-foreground' :
                         clusterMeta.silhouetteScore > 0.5 ? 'text-emerald-600' :
                         clusterMeta.silhouetteScore > 0.25 ? 'text-blue-600' :
                         'text-amber-600'
                       }`}
                     >
-                      {clusterMeta.silhouetteScore.toFixed(3)}
+                      {clusterMeta.silhouetteScore < 0 ? 'N/A' : clusterMeta.silhouetteScore.toFixed(3)}
                     </span>
                   </div>
                   <span className="w-px h-4 bg-border" />
@@ -870,12 +1047,13 @@ export function ClusterPanel({
                     <span className="text-xs text-muted-foreground font-medium">Separation:</span>
                     <span
                       className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${
+                        clusterMeta.silhouetteScore < 0 ? 'text-muted-foreground bg-muted/30 border-muted' :
                         clusterMeta.silhouetteScore > 0.5 ? 'text-emerald-700 bg-emerald-500/10 border-emerald-500/30' :
                         clusterMeta.silhouetteScore > 0.25 ? 'text-blue-700 bg-blue-500/10 border-blue-500/30' :
                         'text-amber-700 bg-amber-500/10 border-amber-500/30'
                       }`}
                     >
-                      {clusterMeta.silhouetteScore > 0.5 ? 'Good' : clusterMeta.silhouetteScore > 0.25 ? 'Moderate' : 'Weak'}
+                      {clusterMeta.silhouetteScore < 0 ? 'n/a' : clusterMeta.silhouetteScore > 0.5 ? 'strong' : clusterMeta.silhouetteScore > 0.25 ? 'moderate' : 'weak'}
                     </span>
                   </div>
                 </>
@@ -886,6 +1064,26 @@ export function ClusterPanel({
                   <span className="w-px h-4 bg-border" />
                   <span className="text-xs text-muted-foreground">
                     {clusterMeta.kmerSize}-mer {clusterMeta.featureMode === 'hybrid' ? '+ hybrid' : ''} · {clusterMeta.variableLen}bp
+                  </span>
+                </>
+              )}
+
+              {/* Feature space label */}
+              {clusterMeta.featureMode && clusterMeta.featureMode !== 'n/a' && (
+                <>
+                  <span className="w-px h-4 bg-border" />
+                  <span className="flex items-center" style={{ gap: 4 }}>
+                    <span className="text-[10px] text-muted-foreground">Feature space:</span>
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                      clusterMeta.featureMode === 'structure-profile'
+                        ? 'text-purple-600 bg-purple-500/10 border border-purple-500/20'
+                        : clusterMeta.featureMode === 'hybrid'
+                        ? 'text-indigo-600 bg-indigo-500/10 border border-indigo-500/20'
+                        : 'text-cyan-600 bg-cyan-500/10 border border-cyan-500/20'
+                    }`}>
+                      {clusterMeta.featureMode === 'structure-profile' ? 'Structure Profile' :
+                       clusterMeta.featureMode === 'hybrid' ? 'k-mer+Structure' : 'k-mer'}
+                    </span>
                   </span>
                 </>
               )}
@@ -905,7 +1103,14 @@ export function ClusterPanel({
           >
             Visualizations
           </p>
-          <ClusterCharts data={data} />
+          <ClusterCharts
+            data={sorted}
+            featureMode={clusterMeta?.featureMode}
+            silhouetteScore={clusterMeta?.silhouetteScore}
+            quality={clusterMeta?.quality}
+            permutation={clusterMeta?.permutation}
+            clusterMeta={clusterMeta}
+          />
         </div>
       </FadeIn>
 
@@ -921,7 +1126,7 @@ export function ClusterPanel({
 
       <CategoryFilters active={filter} onChange={setFilter} data={data} />
 
-      {filtered.length === 0 ? (
+      {sorted.length === 0 ? (
         <FadeIn>
           <div
             className="text-center text-muted-foreground rounded-xl border border-dashed border-border"
@@ -932,9 +1137,17 @@ export function ClusterPanel({
         </FadeIn>
       ) : (
         <Stagger stagger={0.03} className="flex flex-col" style={{ gap: 'var(--spacing-sm)' }}>
-          {filtered.map((cluster, idx) => (
-            <ClusterCard key={cluster.id} cluster={cluster} rank={idx + 1} />
-          ))}
+          {sorted.map((cluster, idx) => {
+            const enrichIdx = clusterMeta?.abundance ? cluster.id - 1 : -1
+            const enrichScore = enrichIdx >= 0 && enrichIdx < (clusterMeta?.abundance?.enrichment_scores?.length || 0)
+              ? clusterMeta!.abundance!.enrichment_scores[enrichIdx] : undefined
+            const enrichPval = enrichIdx >= 0 && enrichIdx < (clusterMeta?.abundance?.enrichment_pvalues?.length || 0)
+              ? clusterMeta!.abundance!.enrichment_pvalues[enrichIdx] : undefined
+            return (
+            <ClusterCard key={cluster.id} cluster={cluster} rank={idx + 1}
+              enrichmentScore={enrichScore}
+              enrichmentPvalue={enrichPval} />
+          )})}
         </Stagger>
       )}
     </div>

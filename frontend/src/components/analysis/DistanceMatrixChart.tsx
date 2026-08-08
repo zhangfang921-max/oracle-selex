@@ -1,7 +1,6 @@
 import { useState, useCallback, useRef } from 'react'
-import { FadeIn } from '@/components/MotionPrimitives'
-import { Download, Loader2, Grid3X3, FileSpreadsheet } from 'lucide-react'
-import { exportElementAsPNG } from '@/lib/export-png'
+import { Loader2, Grid3X3, FileSpreadsheet, Camera } from 'lucide-react'
+import { downloadChartPanel, downloadPanelAsPNG } from '@/lib/svg-export'
 import { downloadCSV } from '@/lib/export-csv'
 import type { SequenceCluster } from '@/types/analysis'
 
@@ -65,11 +64,6 @@ export function DistanceMatrixChart({ data }: DistanceMatrixChartProps) {
     }
   }, [data])
 
-  const exportPNG = useCallback(async () => {
-    if (!chartRef.current) return
-    await exportElementAsPNG(chartRef.current, 'distance_matrix.png')
-  }, [])
-
   const exportCSV = useCallback(() => {
     if (!matrixData) return
     const { matrix, clusterIds, clusterSizes } = matrixData
@@ -94,15 +88,15 @@ export function DistanceMatrixChart({ data }: DistanceMatrixChartProps) {
     const { matrix, clusterIds, clusterSizes } = matrixData
     const n = matrix.length
 
-    // Limit to top 20 clusters for readability
+    // Limit to top 20 clusters for matrix readability (SVG size constraint)
     const limit = Math.min(n, 20)
     const cellSize = Math.max(28, Math.min(44, 500 / limit))
     const labelWidth = 55
     const headerHeight = 55
-    const legendWidth = 60
+    const legendWidth = 80
 
     const width = labelWidth + limit * cellSize + legendWidth
-    const height = headerHeight + limit * cellSize + 20
+    const height = headerHeight + limit * cellSize + 70
 
     // Find max off-diagonal value for color scaling
     let maxVal = 0
@@ -115,21 +109,21 @@ export function DistanceMatrixChart({ data }: DistanceMatrixChartProps) {
     return (
       <svg className="recharts-surface" width={width} height={height} style={{ display: 'block', margin: '0 auto', maxWidth: '100%' }}>
         {/* Column headers */}
-        {clusterIds.slice(0, limit).map((cid, col) => (
+        {clusterIds.slice(0, limit).map((_cid, col) => (
           <g key={`col-${col}`}>
             <text
               x={labelWidth + col * cellSize + cellSize / 2}
-              y={headerHeight - 8}
+              y={headerHeight - 13}
               textAnchor="middle"
-              style={{ fontSize: 10, fill: 'var(--muted-foreground)', fontWeight: 500 }}
+              style={{ fontSize: 14, fill: '#000', fontWeight: 700 }}
             >
-              #{cid}
+              #{col + 1}
             </text>
             <text
               x={labelWidth + col * cellSize + cellSize / 2}
-              y={headerHeight - 20}
+              y={headerHeight - 33}
               textAnchor="middle"
-              style={{ fontSize: 9, fill: 'var(--muted-foreground)' }}
+              style={{ fontSize: 14, fill: '#000' }}
             >
               ({clusterSizes[col]})
             </text>
@@ -137,16 +131,17 @@ export function DistanceMatrixChart({ data }: DistanceMatrixChartProps) {
         ))}
 
         {/* Rows */}
-        {clusterIds.slice(0, limit).map((cid, row) => (
+        {clusterIds.slice(0, limit).map((_cid, row) => (
           <g key={`row-${row}`}>
             {/* Row label */}
             <text
-              x={labelWidth - 6}
+              x={-1}
               y={headerHeight + row * cellSize + cellSize / 2 + 3}
-              textAnchor="end"
-              style={{ fontSize: 10, fill: 'var(--muted-foreground)' }}
+              textAnchor="start"
+              style={{ fontSize: 14, fill: '#000' }}
             >
-              #{cid} ({clusterSizes[row]})
+              <tspan fontWeight={700}>#{row + 1}</tspan>
+              <tspan fontWeight={400} opacity={0.7}> ({clusterSizes[row]})</tspan>
             </text>
 
             {/* Cells */}
@@ -169,8 +164,8 @@ export function DistanceMatrixChart({ data }: DistanceMatrixChartProps) {
                     y={headerHeight + row * cellSize + cellSize / 2 + 3}
                     textAnchor="middle"
                     style={{
-                      fontSize: cellSize > 35 ? 8 : 7,
-                      fill: isDiagonal ? 'oklch(0.35 0.1 160)' : (val / maxVal > 0.6 ? 'white' : 'var(--foreground)'),
+                      fontSize: 10,
+                      fill: isDiagonal ? '#000' : '#ffffff',
                       fontWeight: isDiagonal ? 600 : 400,
                     }}
                   >
@@ -191,17 +186,17 @@ export function DistanceMatrixChart({ data }: DistanceMatrixChartProps) {
           </linearGradient>
         </defs>
         <rect
-          x={labelWidth + limit * cellSize + 15}
+          x={labelWidth + limit * cellSize + 5}
           y={headerHeight}
           width={12}
           height={limit * cellSize}
           fill="url(#distGrad)"
           rx={3}
         />
-        <text x={labelWidth + limit * cellSize + 32} y={headerHeight + 8} style={{ fontSize: 7, fill: 'var(--muted-foreground)' }}>
+        <text x={labelWidth + limit * cellSize + 20} y={headerHeight + 4} style={{ fontSize: 14, fontWeight: 600, fill: '#000' }}>
           Far
         </text>
-        <text x={labelWidth + limit * cellSize + 32} y={headerHeight + limit * cellSize} style={{ fontSize: 7, fill: 'var(--muted-foreground)' }}>
+        <text x={labelWidth + limit * cellSize + 20} y={headerHeight + limit * cellSize - 6} style={{ fontSize: 14, fontWeight: 600, fill: '#000' }}>
           Close
         </text>
       </svg>
@@ -214,7 +209,7 @@ export function DistanceMatrixChart({ data }: DistanceMatrixChartProps) {
         <div className="flex items-center justify-between border-b border-border" style={{ padding: '12px 20px' }}>
           <div className="flex items-center" style={{ gap: 8 }}>
             <Grid3X3 size={14} className="text-muted-foreground" />
-            <span className="text-sm font-semibold">Inter-Cluster Distance Matrix</span>
+            <span className="text-sm font-semibold">F. Inter-Cluster Distance Matrix</span>
             {computed && matrixData && (
               <span className="text-xs text-muted-foreground">
                 {matrixData.numClusters} clusters · Cosine distance
@@ -224,11 +219,11 @@ export function DistanceMatrixChart({ data }: DistanceMatrixChartProps) {
           <div className="flex items-center" style={{ gap: 6 }}>
             {computed && (
               <>
-                <button onClick={exportCSV} className="flex items-center text-xs font-medium rounded-md border border-border bg-background hover:bg-muted transition-colors cursor-pointer" style={{ padding: '5px 10px', gap: 4 }}>
-                  <FileSpreadsheet size={12} /> CSV
+                <button onClick={exportCSV} className="flex items-center text-xs rounded-md border border-border bg-background hover:bg-muted transition-colors cursor-pointer" style={{ padding: '4px 8px' }} title="Download CSV">
+                  <FileSpreadsheet size={13} />
                 </button>
-                <button onClick={exportPNG} className="flex items-center text-xs font-medium rounded-md border border-border bg-background hover:bg-muted transition-colors cursor-pointer" style={{ padding: '5px 10px', gap: 4 }}>
-                  <Download size={12} /> PNG (300dpi)
+                <button onClick={() => { if (chartRef.current) downloadPanelAsPNG(chartRef.current, 'distance_matrix') }} className="flex items-center text-xs rounded-md border border-primary/30 bg-primary/5 text-primary transition-colors cursor-pointer" style={{ padding: '4px 8px' }} title="Save as PNG">
+                  <Camera size={13} />
                 </button>
               </>
             )}
@@ -245,7 +240,7 @@ export function DistanceMatrixChart({ data }: DistanceMatrixChartProps) {
           </div>
         </div>
 
-        <div ref={chartRef} style={{ padding: '16px 20px' }}>
+        <div ref={chartRef} style={{ padding: '0' }}>
           {!computed && !loading && !error && (
             <div className="flex flex-col items-center justify-center text-center rounded-xl border border-dashed border-border bg-muted/20" style={{ height: 400, gap: 12 }}>
               <div className="rounded-full flex items-center justify-center" style={{ width: 56, height: 56, background: 'color-mix(in oklch, var(--primary) 10%, transparent)' }}>
@@ -282,27 +277,28 @@ export function DistanceMatrixChart({ data }: DistanceMatrixChartProps) {
           )}
 
           {computed && matrixData && (
-            <FadeIn>
-              <div className="overflow-x-auto">
+            <>
+              <div className="overflow-x-auto" style={{ marginBottom: -24 }}>
                 {renderMatrix()}
               </div>
 
-              <div className="flex items-center justify-center" style={{ gap: 16, marginTop: 12 }}>
+              <div className="flex items-center justify-center" style={{ gap: 16, marginTop: -4, marginBottom: 8 }}>
                 <div className="flex items-center" style={{ gap: 4 }}>
                   <div style={{ width: 12, height: 12, background: 'oklch(0.92 0.03 160)', border: '1px solid oklch(0.7 0.1 160)', borderRadius: 2 }} />
-                  <span className="text-xs text-muted-foreground">Diagonal = intra-cluster cohesion</span>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: '#000' }}>Diagonal = intra-cluster cohesion</span>
                 </div>
                 <div className="flex items-center" style={{ gap: 4 }}>
                   <div style={{ width: 12, height: 12, background: 'oklch(0.5 0.2 290)', borderRadius: 2 }} />
-                  <span className="text-xs text-muted-foreground">Off-diagonal = inter-cluster distance</span>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: '#000' }}>Off-diagonal = inter-cluster distance</span>
                 </div>
               </div>
 
-              <p className="text-center text-muted-foreground" style={{ fontSize: 10, marginTop: 8 }}>
-                Fig. Inter-cluster distance matrix (cosine distance on 4-mer features). Green diagonal = intra-cluster average distance (lower = tighter cluster).
-                Off-diagonal = average distance between cluster pairs.
-              </p>
-            </FadeIn>
+              <div className="rounded-lg border border-border/50 bg-muted/5" style={{ padding: '10px 14px', marginTop: 4 }}>
+                <p className="text-xs font-semibold" style={{ marginBottom: 4 }}>
+                  <strong>F.</strong> Inter-cluster distance matrix (cosine distance on 4-mer features). Green diagonal = intra-cluster average distance (lower = tighter cluster). Off-diagonal = average distance between cluster pairs.
+                </p>
+              </div>
+            </>
           )}
         </div>
       </div>

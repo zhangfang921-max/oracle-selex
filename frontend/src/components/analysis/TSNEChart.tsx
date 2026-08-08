@@ -10,10 +10,11 @@ import {
   CartesianGrid,
 } from 'recharts'
 import { Download, Loader2, MapPin, Settings2, FileSpreadsheet } from 'lucide-react'
-import { exportElementAsPNG } from '@/lib/export-png'
+import { downloadChartPanel } from '@/lib/svg-export'
 import { downloadCSV } from '@/lib/export-csv'
-import { getClusterColor, getClusterShape, type ClusterShape } from '@/lib/cluster-colors'
+import { getClusterColor } from '@/lib/cluster-colors'
 import type { SequenceCluster } from '@/types/analysis'
+import { ChartLayout } from '@/config/chartLayout'
 
 interface TSNEPoint {
   x: number
@@ -21,47 +22,31 @@ interface TSNEPoint {
   clusterId: number
   sequence: string
   idx: number
+  count?: number
 }
 
 interface TSNEChartProps {
   data: SequenceCluster[]
   maxVisibleClusters?: number
+  featureMode?: string
+  dotSize?: number
+  onDotSizeChange?: (v: number) => void
 }
 
-// Custom dot renderer with configurable size
+// Custom dot renderer — size scales with count (overlapping points merged)
 function CustomDot(props: any) {
-  const { cx, cy, payload, dotSize } = props
+  const { cx, cy, payload, dotSize, maxCount } = props
   if (cx === undefined || cy === undefined) return null
-  const color = getClusterColor(payload.clusterId)
-  const shape: ClusterShape = getClusterShape(payload.clusterId)
-  const r = dotSize || 7
+  const color = payload.clusterId <= 5 ? getClusterColor(payload.clusterId) : '#aaa'
+  const baseR = dotSize || 7
+  const count = payload.readCount || payload.count || 1
+  // Area ∝ count: radius = baseR * √(fraction) with floor at 0.55× and ceiling at 1.7×
+  const sf = Math.sqrt(count / Math.max(maxCount || count, 1))
+  const r = baseR * Math.max(0.30, Math.min(3.2, 0.35 + sf * 2.85))
   const op = 0.92
   const sw = 1.2
   const strokeColor = 'rgba(255,255,255,0.6)'
-
-  if (shape === 'circle') {
-    return <circle cx={cx} cy={cy} r={r} fill={color} fillOpacity={op} stroke={strokeColor} strokeWidth={sw} />
-  }
-  if (shape === 'square') {
-    const s = r * 1.65
-    return <rect x={cx - s / 2} y={cy - s / 2} width={s} height={s} rx={1.5} fill={color} fillOpacity={op} stroke={strokeColor} strokeWidth={sw} />
-  }
-  if (shape === 'triangle') {
-    const h = r * 1.8
-    return <polygon points={`${cx},${cy - h} ${cx - h * 0.95},${cy + h * 0.55} ${cx + h * 0.95},${cy + h * 0.55}`} fill={color} fillOpacity={op} stroke={strokeColor} strokeWidth={sw} />
-  }
-  if (shape === 'diamond') {
-    const d = r * 1.7
-    return <polygon points={`${cx},${cy - d} ${cx + d * 0.8},${cy} ${cx},${cy + d} ${cx - d * 0.8},${cy}`} fill={color} fillOpacity={op} stroke={strokeColor} strokeWidth={sw} />
-  }
-  // cross
-  const t = r * 0.42; const o = r * 1.45
-  return (
-    <path
-      d={`M${cx-t},${cy-o} L${cx+t},${cy-o} L${cx+t},${cy-t} L${cx+o},${cy-t} L${cx+o},${cy+t} L${cx+t},${cy+t} L${cx+t},${cy+o} L${cx-t},${cy+o} L${cx-t},${cy+t} L${cx-o},${cy+t} L${cx-o},${cy-t} L${cx-t},${cy-t} Z`}
-      fill={color} fillOpacity={op} stroke={strokeColor} strokeWidth={0.8}
-    />
-  )
+  return <circle cx={cx} cy={cy} r={r} fill={color} fillOpacity={op} stroke={strokeColor} strokeWidth={sw} />
 }
 
 // Custom tooltip
@@ -72,26 +57,33 @@ function TSNETooltip({ active, payload }: any) {
   return (
     <div
       className="bg-background border border-border rounded-lg shadow-lg text-xs"
-      style={{ padding: '8px 12px', maxWidth: 240 }}
+      style={{ padding: '8px 12px', maxWidth: 260 }}
     >
-      <p className="font-semibold" style={{ marginBottom: 3 }}>Cluster #{d.clusterId}</p>
+      <p className="font-semibold" style={{ marginBottom: 3 }}>Cluster #{d.clusterId}{(d.count && d.count > 1) ? `  (×${d.count})` : ''}</p>
       <p className="text-muted-foreground" style={{ fontFamily: 'var(--font-family-mono)', lineHeight: 1.5 }}>
         {d.sequence}
       </p>
+      {(d.count && d.count > 1) && (
+        <p className="text-[10px] text-muted-foreground mt-1 italic">
+          {d.count} overlapping sequences at this position
+        </p>
+      )}
     </div>
   )
 }
 
-export function TSNEChart({ data, maxVisibleClusters: externalMaxClusters }: TSNEChartProps) {
+export function TSNEChart({ data, maxVisibleClusters: externalMaxClusters, featureMode, dotSize = 3, onDotSizeChange }: TSNEChartProps) {
   const [points, setPoints] = useState<TSNEPoint[]>([])
   const [loading, setLoading] = useState(false)
   const [computed, setComputed] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const chartRef = useRef<HTMLDivElement>(null)
 
-  // Interactive controls
-  const [dotSize, setDotSize] = useState(7)
-  const [showSettings, setShowSettings] = useState(false)
+  // Maximum overlap count for sizing
+  const maxCount = useMemo(() => {
+    if (points.length === 0) return 1
+    return Math.max(...points.map(p => (p as any).readCount || p.count || 1), 1)
+  }, [points])
 
   // Use external cluster filter from parent
   const maxVisibleClusters = externalMaxClusters ?? 0
@@ -104,22 +96,25 @@ export function TSNEChart({ data, maxVisibleClusters: externalMaxClusters }: TSN
     try {
       const sequences: string[] = []
       const clusterIds: number[] = []
+      const counts: number[] = []
 
       data.forEach((cluster) => {
         cluster.members.forEach((member) => {
           sequences.push(member.sequence)
           clusterIds.push(cluster.id)
+          counts.push(member.totalReads || 1)
         })
-        if (cluster.members.length === 0) {
+        if (cluster.members.length === 0 && cluster.representative) {
           sequences.push(cluster.representative)
           clusterIds.push(cluster.id)
+          counts.push(1)
         }
       })
 
       const resp = await fetch('/api/analysis/tsne', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sequences, clusterIds }),
+        body: JSON.stringify({ sequences, clusterIds, readCounts: counts, ...(featureMode ? { featureMode } : {}) }),
       })
 
       if (!resp.ok) {
@@ -138,15 +133,14 @@ export function TSNEChart({ data, maxVisibleClusters: externalMaxClusters }: TSN
     }
   }, [data])
 
-  const exportPNG = useCallback(async () => {
-    if (!chartRef.current) return
-    await exportElementAsPNG(chartRef.current, 'tsne_cluster_map.png')
+  const exportSVG = useCallback(() => {
+    if (chartRef.current) downloadChartPanel(chartRef.current, 'tsne_cluster_map.svg')
   }, [])
 
   const exportCSV = useCallback(() => {
     if (points.length === 0) return
-    const headers = ['Index', 'Cluster_ID', 'tSNE_1', 'tSNE_2', 'Sequence']
-    const rows = points.map(p => [p.idx, p.clusterId, p.x.toFixed(6), p.y.toFixed(6), p.sequence])
+    const headers = ['x', 'y', 'cluster_id', 'sequence', 'read_count']
+    const rows = points.map(p => [p.x.toFixed(6), p.y.toFixed(6), p.clusterId, p.sequence, p.count || 1])
     downloadCSV('tsne_coordinates.csv', headers, rows)
   }, [points])
 
@@ -175,104 +169,9 @@ export function TSNEChart({ data, maxVisibleClusters: externalMaxClusters }: TSN
 
   return (
     <div>
-      <div className="border border-border rounded-xl bg-card overflow-hidden">
-        {/* Header */}
-        <div
-          className="flex items-center justify-between border-b border-border"
-          style={{ padding: '12px 20px' }}
-        >
-          <div className="flex items-center" style={{ gap: 8 }}>
-            <MapPin size={14} className="text-primary" />
-            <span className="text-sm font-semibold">t-SNE Sequence Cluster Map</span>
-            <span className="text-xs font-medium rounded-full px-2 py-0.5" style={{ background: 'color-mix(in oklch, var(--primary) 12%, transparent)', color: 'var(--primary)' }}>Primary</span>
-            {computed && (
-              <span className="text-xs text-muted-foreground">
-                {visiblePoints} sequences · {visibleClusters}/{numClusters} clusters
-              </span>
-            )}
-          </div>
-          <div className="flex items-center" style={{ gap: 6 }}>
-            {computed && (
-              <>
-                <button
-                  onClick={() => setShowSettings(!showSettings)}
-                  className={`flex items-center text-xs font-medium rounded-md border transition-colors cursor-pointer ${showSettings ? 'border-primary/50 bg-primary/10 text-primary' : 'border-border bg-background hover:bg-muted text-muted-foreground'}`}
-                  style={{ padding: '5px 10px', gap: 4 }}
-                >
-                  <Settings2 size={12} />
-                  Settings
-                </button>
-                <button
-                  onClick={exportCSV}
-                  className="flex items-center text-xs font-medium rounded-md border border-border bg-background hover:bg-muted transition-colors cursor-pointer"
-                  style={{ padding: '5px 10px', gap: 4 }}
-                >
-                  <FileSpreadsheet size={12} />
-                  CSV
-                </button>
-                <button
-                  onClick={exportPNG}
-                  className="flex items-center text-xs font-medium rounded-md border border-border bg-background hover:bg-muted transition-colors cursor-pointer"
-                  style={{ padding: '5px 10px', gap: 4 }}
-                >
-                  <Download size={12} />
-                  PNG (300dpi)
-                </button>
-              </>
-            )}
-            {!computed && !loading && (
-              <button
-                onClick={runTSNE}
-                disabled={data.length < 2}
-                className="flex items-center text-xs font-medium rounded-md border border-primary/30 bg-primary/8 text-primary hover:bg-primary/15 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                style={{ padding: '5px 12px', gap: 5 }}
-              >
-                <MapPin size={12} />
-                Generate t-SNE Map
-              </button>
-            )}
-            {computed && (
-              <button
-                onClick={() => { setComputed(false); setPoints([]) }}
-                className="text-xs text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
-                style={{ padding: '5px 8px' }}
-              >
-                Reset
-              </button>
-            )}
-          </div>
-        </div>
 
-        {/* Settings panel */}
-        {computed && showSettings && (
-          <div className="border-b border-border bg-muted/30" style={{ padding: '12px 20px' }}>
-            <div className="flex items-center flex-wrap" style={{ gap: 20 }}>
-              <div className="flex items-center" style={{ gap: 8 }}>
-                <label className="text-xs font-medium text-muted-foreground whitespace-nowrap">Dot Size</label>
-                <input
-                  type="range"
-                  min={3}
-                  max={14}
-                  step={1}
-                  value={dotSize}
-                  onChange={(e) => setDotSize(Number(e.target.value))}
-                  className="w-24 h-2 cursor-pointer accent-primary"
-                />
-                <span className="text-xs font-mono text-muted-foreground w-6">{dotSize}px</span>
-              </div>
-              <div className="flex items-center" style={{ gap: 8 }}>
-                <label className="text-xs font-medium text-muted-foreground whitespace-nowrap">Clusters</label>
-                <span className="text-xs font-mono text-muted-foreground">
-                  {maxVisibleClusters <= 0 ? `All (${numClusters})` : `${maxVisibleClusters}/${numClusters}`}
-                </span>
-                <span className="text-[10px] text-muted-foreground italic">(use global Settings)</span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Chart area */}
-        <div ref={chartRef} style={{ padding: '16px 20px' }}>
+      {/* Chart area */}
+      <div ref={chartRef}>
           {/* Initial state */}
           {!computed && !loading && !error && (
             <div
@@ -293,8 +192,8 @@ export function TSNEChart({ data, maxVisibleClusters: externalMaxClusters }: TSN
                 <p className="text-sm font-semibold" style={{ marginBottom: 6 }}>
                   t-SNE Sequence Cluster Map
                 </p>
-                <p className="text-xs text-muted-foreground" style={{ maxWidth: 400 }}>
-                  Project all {data.reduce((s, c) => s + c.size, 0)} sequences into 2D space using k-mer frequency features.
+                <p className="text-xs text-muted-foreground text-center" style={{ maxWidth: 400 }}>
+                  Project all {data.reduce((s, c) => s + c.size, 0)} sequences into 2D space using {featureMode === 'structure-profile' ? 'structure profile vectors (48-dim dot-bracket features)' : 'k-mer frequency features'}.
                   Each point is colored and shaped by cluster — nearby points share sequence similarity.
                 </p>
                 <p className="text-xs" style={{ marginTop: 6, color: 'var(--muted-foreground)', opacity: 0.75 }}>
@@ -326,7 +225,7 @@ export function TSNEChart({ data, maxVisibleClusters: externalMaxClusters }: TSN
               <div className="text-center">
                 <p className="text-sm font-medium">Computing t-SNE embedding...</p>
                 <p className="text-xs text-muted-foreground" style={{ marginTop: 4 }}>
-                  Calculating k-mer features and running dimensionality reduction
+                  Calculating {featureMode === 'structure-profile' ? 'structure profile' : 'k-mer'} features and running dimensionality reduction
                 </p>
               </div>
             </div>
@@ -351,91 +250,94 @@ export function TSNEChart({ data, maxVisibleClusters: externalMaxClusters }: TSN
 
           {/* Chart */}
           {computed && points.length > 0 && (
-            <div>
-              <div style={{ width: '100%', height: 520 }}>
+            <div style={{ height: '100%' }}>
+              <div style={{ display: 'flex', gap: 0, alignItems: 'flex-start', height: '100%' }}>
+                <div style={{ flex: '1 1 0', minWidth: 0, height: '100%' }}>
+                  <div style={{ width: '100%', aspectRatio: '3/2', position: 'relative' }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <ScatterChart margin={{ top: 20, right: 30, bottom: 50, left: 40 }}>
-                    <CartesianGrid strokeDasharray="2 4" stroke="var(--border)" opacity={0.4} />
-                    <XAxis
+                  <ScatterChart margin={ChartLayout.dimReduction.margin}>
+                                        <XAxis
                       type="number"
                       dataKey="x"
                       name="t-SNE 1"
-                      tick={{ fontSize: 13, fill: 'var(--muted-foreground)' }}
-                      axisLine={{ stroke: 'var(--border)', strokeWidth: 1.5 }}
-                      tickLine={{ stroke: 'var(--border)' }}
-                      label={{ value: 't-SNE Dimension 1', position: 'bottom', offset: 28, style: { fontSize: 14, fontWeight: 600, fill: 'var(--foreground)' } }}
+                      tick={{ fontSize: 14, fill: '#1a1a1a', fontFamily: 'system-ui, sans-serif', fontWeight: 600 }}
+                      axisLine={{ stroke: '#1a1a1a', strokeWidth: 1 }}
+                      tickLine={{ stroke: '#1a1a1a' }}
+                      label={{ value: 't-SNE Dimension 1', position: 'bottom', offset: 2, style: { fontSize: 16, fontWeight: 600, fill: '#1a1a1a', fontFamily: 'system-ui, sans-serif' } }}
                     />
                     <YAxis
                       type="number"
                       dataKey="y"
                       name="t-SNE 2"
-                      tick={{ fontSize: 13, fill: 'var(--muted-foreground)' }}
-                      axisLine={{ stroke: 'var(--border)', strokeWidth: 1.5 }}
-                      tickLine={{ stroke: 'var(--border)' }}
-                      label={{ value: 't-SNE Dimension 2', angle: -90, position: 'insideLeft', offset: -20, style: { fontSize: 14, fontWeight: 600, fill: 'var(--foreground)' } }}
+                      tick={{ fontSize: 14, fill: '#1a1a1a', fontFamily: 'system-ui, sans-serif', fontWeight: 600 }}
+                      axisLine={{ stroke: '#1a1a1a', strokeWidth: 1 }}
+                      tickLine={{ stroke: '#1a1a1a' }}
+                      label={{
+                        content: ({ viewBox }: any) => {
+                          const { x, y, height } = viewBox || { x: 0, y: 0, height: 0 }
+                          return (
+                            <text x={x - ChartLayout.dimReduction.yLabelDx} y={y + height / 2} textAnchor="middle"
+                              transform={`rotate(-90, ${x - ChartLayout.dimReduction.yLabelDx}, ${y + height / 2})`}
+                              fontSize={16} fontWeight={600} fill="#1a1a1a" fontFamily="system-ui, sans-serif">
+                              t-SNE Dimension 2
+                            </text>
+                          )
+                        }
+                      }}
                     />
                     <Tooltip content={<TSNETooltip />} />
-                    {clusterGroups.map(({ cid, pts }) => (
-                      <Scatter
-                        key={cid}
-                        name={`Cluster #${cid}`}
-                        data={pts}
-                        isAnimationActive={false}
-                        shape={<CustomDot dotSize={dotSize} />}
-                      >
-                        {pts.map((_, i) => (
-                          <Cell key={i} fill={getClusterColor(cid)} />
-                        ))}
+                    {/* Render 6-30 first (bottom layer), then 1-5 (top layer) */}
+                    {clusterGroups.filter(g => g.cid > 5).map(({ cid, pts }) => (
+                      <Scatter key={cid} name={`Cluster #${cid}`} data={pts} isAnimationActive={false}
+                        shape={<CustomDot dotSize={dotSize} maxCount={maxCount} />}>
+                        {pts.map((_, i) => (<Cell key={i} fill="#aaa" />))}
+                      </Scatter>
+                    ))}
+                    {clusterGroups.filter(g => g.cid <= 5).map(({ cid, pts }) => (
+                      <Scatter key={cid} name={`Cluster #${cid}`} data={pts} isAnimationActive={false}
+                        shape={<CustomDot dotSize={dotSize} maxCount={maxCount} />}>
+                        {pts.map((_, i) => (<Cell key={i} fill={getClusterColor(cid)} />))}
                       </Scatter>
                     ))}
                   </ScatterChart>
                 </ResponsiveContainer>
-              </div>
 
-              {/* Legend */}
-              <div
-                className="rounded-lg border border-border bg-muted/20"
-                style={{ padding: '10px 14px', marginTop: 10 }}
-              >
-                <p className="text-xs font-semibold text-muted-foreground" style={{ marginBottom: 8 }}>Cluster Legend</p>
-                <div
-                  className="grid"
-                  style={{
-                    gridTemplateColumns: `repeat(${visibleClusters > 20 ? 8 : visibleClusters > 12 ? 6 : 5}, minmax(0, 1fr))`,
-                    gap: '6px 10px',
-                  }}
-                >
-                  {clusterGroups.map(({ cid, pts }) => {
-                    const color = getClusterColor(cid)
-                    const shape = getClusterShape(cid)
-                    return (
-                      <div key={cid} className="flex items-center" style={{ gap: 5, minWidth: 0 }}>
-                        <svg width="14" height="14" viewBox="-7 -7 14 14" style={{ flexShrink: 0 }}>
-                          {shape === 'circle' && <circle cx={0} cy={0} r={5.5} fill={color} fillOpacity={0.95} stroke="rgba(255,255,255,0.5)" strokeWidth={0.8} />}
-                          {shape === 'square' && <rect x={-4.5} y={-4.5} width={9} height={9} rx={1} fill={color} fillOpacity={0.95} stroke="rgba(255,255,255,0.5)" strokeWidth={0.8} />}
-                          {shape === 'triangle' && <polygon points="0,-5.5 -5.2,3.2 5.2,3.2" fill={color} fillOpacity={0.95} stroke="rgba(255,255,255,0.5)" strokeWidth={0.8} />}
-                          {shape === 'diamond' && <polygon points="0,-6 5.5,0 0,6 -5.5,0" fill={color} fillOpacity={0.95} stroke="rgba(255,255,255,0.5)" strokeWidth={0.8} />}
-                          {shape === 'cross' && <path d="M-1.5,-6 L1.5,-6 L1.5,-1.5 L6,-1.5 L6,1.5 L1.5,1.5 L1.5,6 L-1.5,6 L-1.5,1.5 L-6,1.5 L-6,-1.5 L-1.5,-1.5 Z" fill={color} fillOpacity={0.95} stroke="rgba(255,255,255,0.5)" strokeWidth={0.6} />}
-                        </svg>
-                        <span className="text-muted-foreground truncate" style={{ fontSize: 10, lineHeight: 1.3 }}>
-                          <span style={{ fontWeight: 600, color: 'var(--foreground)' }}>#{cid}</span>
-                          <span style={{ opacity: 0.6, marginLeft: 2 }}>({pts.length})</span>
-                        </span>
-                      </div>
-                    )
-                  })}
+              {/* Floating legend overlay */}
+              <div data-legend="panel-a" style={{
+                position: 'absolute',
+                top: 16,
+                left: 430,
+                background: 'rgba(255,255,255,0.12)',
+                borderRadius: 6,
+                padding: '6px 10px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 3,
+                pointerEvents: 'none',
+                zIndex: 10,
+              }}>
+                {clusterGroups.slice(0, 5).map(({ cid }) => (
+                    <div key={cid} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <svg width="10" height="10" viewBox="-5 -5 10 10" style={{ flexShrink: 0 }}>
+                        <circle cx={0} cy={0} r={4} fill={getClusterColor(cid)} fillOpacity={0.92} stroke="rgba(255,255,255,0.6)" strokeWidth={1.2} />
+                      </svg>
+                      <span style={{ fontSize: 14, fontWeight: 600, color: '#1a1a1a' }}>#{cid}</span>
+                    </div>
+                ))}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 1 }}>
+                  <svg width="10" height="10" viewBox="-5 -5 10 10" style={{ flexShrink: 0 }}>
+                    <circle cx={0} cy={0} r={4} fill="#aaa" fillOpacity={0.85} stroke="rgba(255,255,255,0.6)" strokeWidth={1.2} />
+                  </svg>
+                  <span style={{ fontSize: 13, color: '#1a1a1a' }}>Others</span>
                 </div>
               </div>
 
-              {/* Caption */}
-              <p className="text-center text-muted-foreground" style={{ fontSize: 10, marginTop: 8, lineHeight: 1.6 }}>
-                Fig. t-SNE visualization · {visiblePoints} sequences · {visibleClusters} clusters · 4-mer k-mer features
-                <br/>
-                Points closer together share higher sequence similarity. Shape + color = cluster identity.
-              </p>
+
+              </div>
+            </div>
+            </div>
             </div>
           )}
-        </div>
       </div>
     </div>
   )

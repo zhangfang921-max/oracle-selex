@@ -495,7 +495,7 @@ analysisRouter.post('/distance_matrix', async (req: Request, res: Response) => {
 
 // Optimal clustering (ML-based: auto-selects best algorithm and K)
 analysisRouter.post('/optimal_cluster', async (req: Request, res: Response) => {
-  const { sequences, method, maxClusters, forwardPrimer, reversePrimer, structuralScores, featureMode } = req.body
+  const { sequences, method, maxClusters, minClusters, forwardPrimer, reversePrimer, structuralScores, featureMode, doPermutationTest, nPermutations, selectionCriterion, readCounts, abundanceThreshold } = req.body
 
   if (!sequences || !Array.isArray(sequences) || sequences.length < 3) {
     res.status(400).json({ success: false, message: 'At least 3 sequences required' })
@@ -504,7 +504,7 @@ analysisRouter.post('/optimal_cluster', async (req: Request, res: Response) => {
 
   try {
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 180000) // 3 min timeout for enhanced algorithms
+    const timeout = setTimeout(() => controller.abort(), 180000)
     const resp = await fetch('http://localhost:3003/optimal_cluster', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -512,7 +512,13 @@ analysisRouter.post('/optimal_cluster', async (req: Request, res: Response) => {
         sequences,
         method: method || 'auto',
         maxClusters: maxClusters || 30,
+        ...(minClusters ? { minClusters } : {}),
         featureMode: featureMode || 'auto',
+        doPermutationTest: doPermutationTest || false,
+        nPermutations: nPermutations || 1000,
+        ...(selectionCriterion ? { selectionCriterion } : {}),
+        ...(readCounts ? { readCounts } : {}),
+        ...(abundanceThreshold ? { abundanceThreshold } : {}),
         ...(forwardPrimer ? { forwardPrimer } : {}),
         ...(reversePrimer ? { reversePrimer } : {}),
         ...(structuralScores ? { structuralScores } : {}),
@@ -528,6 +534,47 @@ analysisRouter.post('/optimal_cluster', async (req: Request, res: Response) => {
     const msg = isConnRefused
       ? 'Analysis service (port 3003) is not running. Please restart the application.'
       : `Analysis service error: ${err.message}`
+    res.status(503).json({ success: false, message: msg })
+  }
+})
+// Network graph — force-directed similarity visualization
+analysisRouter.post('/network_graph', async (req: Request, res: Response) => {
+  const { sequences, clusterIds, readCounts, dotBrackets, similarityThreshold, maxEdgesPerNode, maxNodes, maxPerCluster, layoutMode, featureMode } = req.body
+
+  if (!sequences || !Array.isArray(sequences) || sequences.length < 3) {
+    res.status(400).json({ success: false, message: 'At least 3 sequences required' })
+    return
+  }
+
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 120000)
+    const resp = await fetch('http://localhost:3003/network_graph', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sequences,
+        clusterIds: clusterIds || sequences.map((_: any, i: number) => i),
+        readCounts: readCounts || null,
+        dotBrackets: dotBrackets || null,
+        similarityThreshold: similarityThreshold || 0.7,
+        maxEdgesPerNode: maxEdgesPerNode || 8,
+        maxNodes: maxNodes || 2000,
+        ...(maxPerCluster ? { maxPerCluster } : {}),
+        ...(layoutMode ? { layoutMode } : {}),
+        ...(featureMode ? { featureMode } : {}),
+      }),
+      signal: controller.signal,
+    })
+    clearTimeout(timeout)
+    if (!resp.ok) throw new Error(`Analysis service returned ${resp.status}`)
+    const json = await resp.json()
+    res.json(json)
+  } catch (err: any) {
+    const isConnRefused = err.message?.includes('ECONNREFUSED') || err.message?.includes('fetch failed')
+    const msg = isConnRefused
+      ? 'Analysis service (port 3003) is not running. Please restart the application.'
+      : `Network graph error: ${err.message}`
     res.status(503).json({ success: false, message: msg })
   }
 })

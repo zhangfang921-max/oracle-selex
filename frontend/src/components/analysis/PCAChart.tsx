@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useMemo } from 'react'
 import {
   ScatterChart,
   Scatter,
@@ -9,57 +9,84 @@ import {
   Cell,
   CartesianGrid,
 } from 'recharts'
-import { FadeIn } from '@/components/MotionPrimitives'
-import { Download, Loader2, Axis3D } from 'lucide-react'
-import { exportElementAsPNG } from '@/lib/export-png'
-import { getClusterColor, getClusterShape, type ClusterShape } from '@/lib/cluster-colors'
+import { Download, Loader2, MapPin, Settings2, FileSpreadsheet } from 'lucide-react'
+import { downloadChartPanel } from '@/lib/svg-export'
+import { downloadCSV } from '@/lib/export-csv'
+import { getClusterColor } from '@/lib/cluster-colors'
 import type { SequenceCluster } from '@/types/analysis'
+import { ChartLayout } from '@/config/chartLayout'
 
-interface Point {
+interface PCAPoint {
   x: number
   y: number
   clusterId: number
   sequence: string
   idx: number
+  count?: number
 }
 
 interface PCAChartProps {
   data: SequenceCluster[]
+  maxVisibleClusters?: number
+  featureMode?: string
+  dotSize?: number
+  onDotSizeChange?: (v: number) => void
 }
 
+// Custom dot renderer — size scales with count (overlapping points merged)
 function CustomDot(props: any) {
-  const { cx, cy, payload } = props
+  const { cx, cy, payload, dotSize, maxCount } = props
   if (cx === undefined || cy === undefined) return null
-  const color = getClusterColor(payload.clusterId)
-  const shape: ClusterShape = getClusterShape(payload.clusterId)
-  const r = 6; const op = 0.88; const sw = 0.8
-  if (shape === 'circle') return <circle cx={cx} cy={cy} r={r} fill={color} fillOpacity={op} stroke={color} strokeWidth={sw} strokeOpacity={0.4} />
-  if (shape === 'square') { const s = r*1.55; return <rect x={cx-s/2} y={cy-s/2} width={s} height={s} fill={color} fillOpacity={op} stroke={color} strokeWidth={sw} strokeOpacity={0.4} /> }
-  if (shape === 'triangle') { const h=r*1.7; return <polygon points={`${cx},${cy-h} ${cx-h},${cy+h*0.5} ${cx+h},${cy+h*0.5}`} fill={color} fillOpacity={op} stroke={color} strokeWidth={sw} strokeOpacity={0.4} /> }
-  if (shape === 'diamond') { const d=r*1.6; return <polygon points={`${cx},${cy-d} ${cx+d},${cy} ${cx},${cy+d} ${cx-d},${cy}`} fill={color} fillOpacity={op} stroke={color} strokeWidth={sw} strokeOpacity={0.4} /> }
-  const t=r*0.45; const o=r*1.4
-  return <path d={`M${cx-t},${cy-o} L${cx+t},${cy-o} L${cx+t},${cy-t} L${cx+o},${cy-t} L${cx+o},${cy+t} L${cx+t},${cy+t} L${cx+t},${cy+o} L${cx-t},${cy+o} L${cx-t},${cy+t} L${cx-o},${cy+t} L${cx-o},${cy-t} L${cx-t},${cy-t} Z`} fill={color} fillOpacity={op} stroke={color} strokeWidth={0.6} strokeOpacity={0.4} />
+  const color = payload.clusterId <= 5 ? getClusterColor(payload.clusterId) : '#aaa'
+  const baseR = dotSize || 7
+  const count = payload.readCount || payload.count || 1
+  // Area ∝ count: radius = baseR * √(fraction) with floor at 0.55× and ceiling at 1.7×
+  const sf = Math.sqrt(count / Math.max(maxCount || count, 1))
+  const r = baseR * Math.max(0.30, Math.min(3.2, 0.35 + sf * 2.85))
+  const op = 0.92
+  const sw = 1.2
+  const strokeColor = 'rgba(255,255,255,0.6)'
+  return <circle cx={cx} cy={cy} r={r} fill={color} fillOpacity={op} stroke={strokeColor} strokeWidth={sw} />
 }
 
+// Custom tooltip
 function PCATooltip({ active, payload }: any) {
   if (!active || !payload || payload.length === 0) return null
-  const d: Point = payload[0]?.payload
+  const d: PCAPoint = payload[0]?.payload
   if (!d) return null
   return (
-    <div className="bg-background border border-border rounded-lg shadow-lg text-xs" style={{ padding: '8px 12px', maxWidth: 240 }}>
-      <p className="font-semibold" style={{ marginBottom: 3 }}>Cluster #{d.clusterId}</p>
-      <p className="text-muted-foreground" style={{ fontFamily: 'var(--font-family-mono)', lineHeight: 1.5 }}>{d.sequence}</p>
+    <div
+      className="bg-background border border-border rounded-lg shadow-lg text-xs"
+      style={{ padding: '8px 12px', maxWidth: 260 }}
+    >
+      <p className="font-semibold" style={{ marginBottom: 3 }}>Cluster #{d.clusterId}{(d.count && d.count > 1) ? `  (×${d.count})` : ''}</p>
+      <p className="text-muted-foreground" style={{ fontFamily: 'var(--font-family-mono)', lineHeight: 1.5 }}>
+        {d.sequence}
+      </p>
+      {(d.count && d.count > 1) && (
+        <p className="text-[10px] text-muted-foreground mt-1 italic">
+          {d.count} overlapping sequences at this position
+        </p>
+      )}
     </div>
   )
 }
 
-export function PCAChart({ data }: PCAChartProps) {
-  const [points, setPoints] = useState<Point[]>([])
+export function PCAChart({ data, maxVisibleClusters: externalMaxClusters, featureMode, dotSize = 3, onDotSizeChange }: PCAChartProps) {
+  const [points, setPoints] = useState<PCAPoint[]>([])
   const [loading, setLoading] = useState(false)
   const [computed, setComputed] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [variance, setVariance] = useState<number[]>([0, 0])
   const chartRef = useRef<HTMLDivElement>(null)
+
+  // Maximum overlap count for sizing
+  const maxCount = useMemo(() => {
+    if (points.length === 0) return 1
+    return Math.max(...points.map(p => (p as any).readCount || p.count || 1), 1)
+  }, [points])
+
+  // Use external cluster filter from parent
+  const maxVisibleClusters = externalMaxClusters ?? 0
 
   const runPCA = useCallback(async () => {
     if (data.length < 2) return
@@ -69,22 +96,25 @@ export function PCAChart({ data }: PCAChartProps) {
     try {
       const sequences: string[] = []
       const clusterIds: number[] = []
+      const counts: number[] = []
 
       data.forEach((cluster) => {
         cluster.members.forEach((member) => {
           sequences.push(member.sequence)
           clusterIds.push(cluster.id)
+          counts.push(member.totalReads || 1)
         })
-        if (cluster.members.length === 0) {
+        if (cluster.members.length === 0 && cluster.representative) {
           sequences.push(cluster.representative)
           clusterIds.push(cluster.id)
+          counts.push(1)
         }
       })
 
       const resp = await fetch('/api/analysis/pca', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sequences, clusterIds }),
+        body: JSON.stringify({ sequences, clusterIds, readCounts: counts, ...(featureMode ? { featureMode } : {}) }),
       })
 
       if (!resp.ok) {
@@ -95,7 +125,6 @@ export function PCAChart({ data }: PCAChartProps) {
       const result = await resp.json()
       if (!result.success) throw new Error(result.message)
       setPoints(result.data)
-      setVariance(result.varianceExplained || [0, 0])
       setComputed(true)
     } catch (err: any) {
       setError(err.message)
@@ -104,142 +133,211 @@ export function PCAChart({ data }: PCAChartProps) {
     }
   }, [data])
 
-  const exportPNG = useCallback(async () => {
-    if (!chartRef.current) return
-    await exportElementAsPNG(chartRef.current, 'pca_cluster_map.png')
+  const exportSVG = useCallback(() => {
+    if (chartRef.current) downloadChartPanel(chartRef.current, 'pca_cluster_map.svg')
   }, [])
 
-  const clusterGroups = computed
-    ? Array.from(new Map(points.map((p) => [p.clusterId, true])).keys())
-        .sort((a, b) => a - b)
-        .map((cid) => ({ cid, pts: points.filter((p) => p.clusterId === cid) }))
-    : []
+  const exportCSV = useCallback(() => {
+    if (points.length === 0) return
+    const headers = ['x', 'y', 'cluster_id', 'sequence', 'read_count']
+    const rows = points.map(p => [p.x.toFixed(6), p.y.toFixed(6), p.clusterId, p.sequence, p.count || 1])
+    downloadCSV('pca_coordinates.csv', headers, rows)
+  }, [points])
 
-  const numClusters = clusterGroups.length
+  // Group points by cluster
+  const allClusterGroups = useMemo(() => {
+    if (!computed) return []
+    return Array.from(new Map(points.map((p) => [p.clusterId, true])).keys())
+      .sort((a, b) => a - b)
+      .map((cid) => ({
+        cid,
+        pts: points.filter((p) => p.clusterId === cid),
+      }))
+  }, [computed, points])
+
+  // Apply cluster count filter
+  const clusterGroups = useMemo(() => {
+    if (maxVisibleClusters <= 0 || maxVisibleClusters >= allClusterGroups.length) {
+      return allClusterGroups
+    }
+    return allClusterGroups.slice(0, maxVisibleClusters)
+  }, [allClusterGroups, maxVisibleClusters])
+
+  const numClusters = allClusterGroups.length
+  const visibleClusters = clusterGroups.length
+  const visiblePoints = clusterGroups.reduce((sum, g) => sum + g.pts.length, 0)
 
   return (
-    <div className="lg:col-span-2">
-      <div className="border border-border rounded-xl bg-card overflow-hidden">
-        <div className="flex items-center justify-between border-b border-border" style={{ padding: '12px 20px' }}>
-          <div className="flex items-center" style={{ gap: 8 }}>
-            <Axis3D size={14} className="text-muted-foreground" />
-            <span className="text-sm font-semibold">PCA Projection</span>
-            {computed && (
-              <span className="text-xs text-muted-foreground">
-                {points.length} sequences · PC1: {(variance[0] * 100).toFixed(1)}% · PC2: {(variance[1] * 100).toFixed(1)}%
-              </span>
-            )}
-          </div>
-          <div className="flex items-center" style={{ gap: 6 }}>
-            {computed && (
-              <button onClick={exportPNG} className="flex items-center text-xs font-medium rounded-md border border-border bg-background hover:bg-muted transition-colors cursor-pointer" style={{ padding: '5px 10px', gap: 4 }}>
-                <Download size={12} /> PNG (300dpi)
-              </button>
-            )}
-            {!computed && !loading && (
-              <button onClick={runPCA} disabled={data.length < 2} className="flex items-center text-xs font-medium rounded-md border border-primary/30 bg-primary/8 text-primary hover:bg-primary/15 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed" style={{ padding: '5px 12px', gap: 5 }}>
-                <Axis3D size={12} /> Generate PCA Plot
-              </button>
-            )}
-            {computed && (
-              <button onClick={() => { setComputed(false); setPoints([]) }} className="text-xs text-muted-foreground hover:text-foreground cursor-pointer transition-colors" style={{ padding: '5px 8px' }}>
-                Reset
-              </button>
-            )}
-          </div>
-        </div>
+    <div>
 
-        <div ref={chartRef} style={{ padding: '16px 20px' }}>
+      {/* Chart area */}
+      <div ref={chartRef}>
+          {/* Initial state */}
           {!computed && !loading && !error && (
-            <div className="flex flex-col items-center justify-center text-center rounded-xl border border-dashed border-border bg-muted/20" style={{ height: 400, gap: 12 }}>
-              <div className="rounded-full flex items-center justify-center" style={{ width: 56, height: 56, background: 'color-mix(in oklch, var(--primary) 10%, transparent)' }}>
-                <Axis3D size={24} style={{ color: 'var(--primary)' }} />
+            <div
+              className="flex flex-col items-center justify-center text-center rounded-xl border border-dashed border-border bg-muted/20"
+              style={{ height: 420, gap: 12 }}
+            >
+              <div
+                className="rounded-full flex items-center justify-center"
+                style={{
+                  width: 60,
+                  height: 60,
+                  background: 'color-mix(in oklch, var(--primary) 12%, transparent)',
+                }}
+              >
+                <MapPin size={26} style={{ color: 'var(--primary)' }} />
               </div>
               <div>
-                <p className="text-sm font-semibold" style={{ marginBottom: 4 }}>PCA Linear Projection</p>
-                <p className="text-xs text-muted-foreground" style={{ maxWidth: 360 }}>
-                  Principal Component Analysis shows the two directions of greatest variance. Good for seeing overall spread and linear separability of clusters.
+                <p className="text-sm font-semibold" style={{ marginBottom: 6 }}>
+                  PCA Sequence Cluster Map
+                </p>
+                <p className="text-xs text-muted-foreground text-center" style={{ maxWidth: 400 }}>
+                  Project all {data.reduce((s, c) => s + c.size, 0)} sequences into 2D space using {featureMode === 'structure-profile' ? 'structure profile vectors (48-dim dot-bracket features)' : 'k-mer frequency features'}.
+                  Each point is colored and shaped by cluster — nearby points share sequence similarity.
+                </p>
+                <p className="text-xs" style={{ marginTop: 6, color: 'var(--muted-foreground)', opacity: 0.75 }}>
+                  PCA excels at revealing tight local neighborhood structure.
                 </p>
               </div>
-              <button onClick={runPCA} className="flex items-center text-sm font-medium rounded-lg px-5 py-2 transition-colors cursor-pointer" style={{ background: 'var(--primary)', color: 'var(--primary-foreground)', gap: 6 }}>
-                <Axis3D size={14} /> Generate PCA Plot
+              <button
+                onClick={runPCA}
+                className="flex items-center text-sm font-medium rounded-lg px-5 py-2 transition-colors cursor-pointer"
+                style={{
+                  background: 'var(--primary)',
+                  color: 'var(--primary-foreground)',
+                  gap: 6,
+                }}
+              >
+                <MapPin size={14} />
+                Generate PCA Map
               </button>
             </div>
           )}
 
+          {/* Loading */}
           {loading && (
-            <div className="flex flex-col items-center justify-center" style={{ height: 400, gap: 12 }}>
+            <div
+              className="flex flex-col items-center justify-center"
+              style={{ height: 400, gap: 12 }}
+            >
               <Loader2 className="animate-spin text-primary" size={28} />
               <div className="text-center">
-                <p className="text-sm font-medium">Computing PCA projection...</p>
-                <p className="text-xs text-muted-foreground" style={{ marginTop: 4 }}>Finding principal components of k-mer feature space</p>
+                <p className="text-sm font-medium">Computing PCA embedding...</p>
+                <p className="text-xs text-muted-foreground" style={{ marginTop: 4 }}>
+                  Calculating {featureMode === 'structure-profile' ? 'structure profile' : 'k-mer'} features and running dimensionality reduction
+                </p>
               </div>
             </div>
           )}
 
+          {/* Error */}
           {error && (
-            <div className="flex flex-col items-center justify-center text-center rounded-xl border border-red-500/20 bg-red-500/5" style={{ height: 200, gap: 8, padding: 24 }}>
+            <div
+              className="flex flex-col items-center justify-center text-center rounded-xl border border-red-500/20 bg-red-500/5"
+              style={{ height: 200, gap: 8, padding: 24 }}
+            >
               <p className="text-sm font-semibold text-red-600">PCA computation failed</p>
               <p className="text-xs text-muted-foreground">{error}</p>
-              <button onClick={runPCA} className="text-xs text-primary hover:underline cursor-pointer mt-2">Try again</button>
+              <button
+                onClick={runPCA}
+                className="text-xs text-primary hover:underline cursor-pointer mt-2"
+              >
+                Try again
+              </button>
             </div>
           )}
 
+          {/* Chart */}
           {computed && points.length > 0 && (
-            <FadeIn>
-              <div style={{ width: '100%', height: 480 }}>
+            <div style={{ height: '100%' }}>
+              <div style={{ display: 'flex', gap: 0, alignItems: 'flex-start', height: '100%' }}>
+                <div style={{ flex: '1 1 0', minWidth: 0, height: '100%' }}>
+                  <div style={{ width: '100%', aspectRatio: '3/2', position: 'relative' }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <ScatterChart margin={{ top: 20, right: 30, bottom: 40, left: 30 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.5} />
-                    <XAxis type="number" dataKey="x" name="PC1" tick={{ fontSize: 10 }} label={{ value: `PC1 (${(variance[0] * 100).toFixed(1)}% variance)`, position: 'bottom', offset: 20, style: { fontSize: 11, fill: 'var(--muted-foreground)' } }} />
-                    <YAxis type="number" dataKey="y" name="PC2" tick={{ fontSize: 10 }} label={{ value: `PC2 (${(variance[1] * 100).toFixed(1)}% variance)`, angle: -90, position: 'insideLeft', offset: -15, style: { fontSize: 11, fill: 'var(--muted-foreground)' } }} />
+                  <ScatterChart margin={ChartLayout.dimReduction.margin}>
+                                        <XAxis
+                      type="number"
+                      dataKey="x"
+                      name="PCA 1"
+                      tick={{ fontSize: 14, fill: '#1a1a1a', fontFamily: 'system-ui, sans-serif', fontWeight: 600 }}
+                      axisLine={{ stroke: '#1a1a1a', strokeWidth: 1 }}
+                      tickLine={{ stroke: '#1a1a1a' }}
+                      label={{ value: 'PCA Dimension 1', position: 'bottom', offset: 2, style: { fontSize: 16, fontWeight: 600, fill: '#1a1a1a', fontFamily: 'system-ui, sans-serif' } }}
+                    />
+                    <YAxis
+                      type="number"
+                      dataKey="y"
+                      name="PCA 2"
+                      tick={{ fontSize: 14, fill: '#1a1a1a', fontFamily: 'system-ui, sans-serif', fontWeight: 600 }}
+                      axisLine={{ stroke: '#1a1a1a', strokeWidth: 1 }}
+                      tickLine={{ stroke: '#1a1a1a' }}
+                      label={{
+                        content: ({ viewBox }: any) => {
+                          const { x, y, height } = viewBox || { x: 0, y: 0, height: 0 }
+                          return (
+                            <text x={x - ChartLayout.dimReduction.yLabelDx} y={y + height / 2} textAnchor="middle"
+                              transform={`rotate(-90, ${x - ChartLayout.dimReduction.yLabelDx}, ${y + height / 2})`}
+                              fontSize={16} fontWeight={600} fill="#1a1a1a" fontFamily="system-ui, sans-serif">
+                              PCA Dimension 2
+                            </text>
+                          )
+                        }
+                      }}
+                    />
                     <Tooltip content={<PCATooltip />} />
-                    {clusterGroups.map(({ cid, pts }) => (
-                      <Scatter key={cid} name={`Cluster #${cid}`} data={pts} isAnimationActive={false} shape={<CustomDot />}>
-                        {pts.map((_, i) => (
-                          <Cell key={i} fill={getClusterColor(cid)} />
-                        ))}
+                    {/* Render 6-30 first (bottom layer), then 1-5 (top layer) */}
+                    {clusterGroups.filter(g => g.cid > 5).map(({ cid, pts }) => (
+                      <Scatter key={cid} name={`Cluster #${cid}`} data={pts} isAnimationActive={false}
+                        shape={<CustomDot dotSize={dotSize} maxCount={maxCount} />}>
+                        {pts.map((_, i) => (<Cell key={i} fill="#aaa" />))}
+                      </Scatter>
+                    ))}
+                    {clusterGroups.filter(g => g.cid <= 5).map(({ cid, pts }) => (
+                      <Scatter key={cid} name={`Cluster #${cid}`} data={pts} isAnimationActive={false}
+                        shape={<CustomDot dotSize={dotSize} maxCount={maxCount} />}>
+                        {pts.map((_, i) => (<Cell key={i} fill={getClusterColor(cid)} />))}
                       </Scatter>
                     ))}
                   </ScatterChart>
                 </ResponsiveContainer>
-              </div>
 
-              <div
-                className="grid"
-                style={{
-                  gridTemplateColumns: `repeat(${Math.min(clusterGroups.length, clusterGroups.length > 20 ? 8 : 6)}, minmax(0, 1fr))`,
-                  gap: '4px 12px',
-                  marginTop: 10,
-                  padding: '8px 4px',
-                }}
-              >
-                {clusterGroups.map(({ cid, pts }) => {
-                  const color = getClusterColor(cid)
-                  const shape = getClusterShape(cid)
-                  return (
-                    <div key={cid} className="flex items-center" style={{ gap: 4, minWidth: 0 }}>
-                      <svg width="12" height="12" viewBox="-7 -7 14 14" style={{ flexShrink: 0 }}>
-                        {shape === 'circle' && <circle cx={0} cy={0} r={5.5} fill={color} fillOpacity={0.9} />}
-                        {shape === 'square' && <rect x={-4.5} y={-4.5} width={9} height={9} fill={color} fillOpacity={0.9} />}
-                        {shape === 'triangle' && <polygon points="0,-5.5 -5.5,3 5.5,3" fill={color} fillOpacity={0.9} />}
-                        {shape === 'diamond' && <polygon points="0,-6 6,0 0,6 -6,0" fill={color} fillOpacity={0.9} />}
-                        {shape === 'cross' && <path d="M-1.5,-6 L1.5,-6 L1.5,-1.5 L6,-1.5 L6,1.5 L1.5,1.5 L1.5,6 L-1.5,6 L-1.5,1.5 L-6,1.5 L-6,-1.5 L-1.5,-1.5 Z" fill={color} fillOpacity={0.9} />}
+              {/* Floating legend overlay */}
+              <div data-legend="panel-a" style={{
+                position: 'absolute',
+                top: 16,
+                left: 430,
+                background: 'rgba(255,255,255,0.12)',
+                borderRadius: 6,
+                padding: '6px 10px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 3,
+                pointerEvents: 'none',
+                zIndex: 10,
+              }}>
+                {clusterGroups.slice(0, 5).map(({ cid }) => (
+                    <div key={cid} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <svg width="10" height="10" viewBox="-5 -5 10 10" style={{ flexShrink: 0 }}>
+                        <circle cx={0} cy={0} r={4} fill={getClusterColor(cid)} fillOpacity={0.92} stroke="rgba(255,255,255,0.6)" strokeWidth={1.2} />
                       </svg>
-                      <span className="text-muted-foreground truncate" style={{ fontSize: 10 }}>
-                        #{cid} <span style={{ opacity: 0.7 }}>({pts.length})</span>
-                      </span>
+                      <span style={{ fontSize: 14, fontWeight: 600, color: '#1a1a1a' }}>#{cid}</span>
                     </div>
-                  )
-                })}
+                ))}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 1 }}>
+                  <svg width="10" height="10" viewBox="-5 -5 10 10" style={{ flexShrink: 0 }}>
+                    <circle cx={0} cy={0} r={4} fill="#aaa" fillOpacity={0.85} stroke="rgba(255,255,255,0.6)" strokeWidth={1.2} />
+                  </svg>
+                  <span style={{ fontSize: 13, color: '#1a1a1a' }}>Others</span>
+                </div>
               </div>
 
-              <p className="text-center text-muted-foreground" style={{ fontSize: 10, marginTop: 8 }}>
-                Fig. PCA projection of RNA aptamer sequences. PC1 and PC2 capture {((variance[0] + variance[1]) * 100).toFixed(1)}% of total variance in k-mer feature space.
-              </p>
-            </FadeIn>
+
+              </div>
+            </div>
+            </div>
+            </div>
           )}
-        </div>
       </div>
     </div>
   )

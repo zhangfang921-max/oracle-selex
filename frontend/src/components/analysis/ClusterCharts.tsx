@@ -1,5 +1,6 @@
 import { useMemo, useRef, useCallback, useState } from 'react'
 import {
+  Legend,
   ScatterChart,
   Scatter,
   XAxis,
@@ -11,23 +12,35 @@ import {
   Bar,
   Cell,
   CartesianGrid,
-  Legend,
   ReferenceLine,
 } from 'recharts'
-import { Download, Image, FileType, Settings2 } from 'lucide-react'
-import { exportElementAsPNG } from '@/lib/export-png'
-import { TSNEChart } from './TSNEChart'
-import { SilhouetteChart } from './SilhouetteChart'
+import { Image, FileType, Settings2, Camera, FileSpreadsheet } from 'lucide-react'
+import { downloadChartPanel, downloadPanelAsPNG } from '@/lib/svg-export'
 import { DistanceMatrixChart } from './DistanceMatrixChart'
+import { ClusterOverviewBubbleChart } from './ClusterOverviewBubbleChart'
 import type { SequenceCluster } from '@/types/analysis'
+import { ChartLayout } from '@/config/chartLayout'
 
 interface ClusterChartsProps {
   data: SequenceCluster[]
+  featureMode?: string
+  silhouetteScore?: number
+  quality?: string
+  permutation?: {
+    p_values: number[]
+    significant: boolean[]
+    cluster_sizes: number[]
+    threshold: number
+  }
+  clusterMeta?: {
+    abundance?: {
+      enrichment_scores?: number[]
+    }
+  } | null
 }
-
 // Scientific color palette (oklch-based, printable)
 const COLORS = {
-  g4pos: 'oklch(0.65 0.18 160)',
+  g4pos: 'oklch(0.65 0.22 145)',
   g4neg: 'oklch(0.6 0.03 260)',
   primary: 'oklch(0.55 0.18 260)',
   accent: 'oklch(0.6 0.2 25)',
@@ -53,7 +66,7 @@ function g4Pass(c: SequenceCluster): number {
   return n
 }
 
-export function ClusterCharts({ data }: ClusterChartsProps) {
+export function ClusterCharts({ data, featureMode, silhouetteScore, quality, permutation, clusterMeta }: ClusterChartsProps) {
   const chartRef = useRef<HTMLDivElement>(null)
   const [maxVisibleClusters, setMaxVisibleClusters] = useState(0) // 0 = show all
   const [showGlobalSettings, setShowGlobalSettings] = useState(false)
@@ -69,52 +82,72 @@ export function ClusterCharts({ data }: ClusterChartsProps) {
   // Export handlers
   const exportSVG = useCallback(() => {
     if (!chartRef.current) return
-    const svgElements = chartRef.current.querySelectorAll('svg.recharts-surface')
+    const svgElements = chartRef.current.querySelectorAll('svg.recharts-surface, svg[class*=\"recharts\"]')
     if (svgElements.length === 0) return
-
-    // Combine all charts into a single SVG for export
-    const container = chartRef.current.cloneNode(true) as HTMLElement
-    container.style.background = 'white'
-    container.style.padding = '20px'
 
     const svgNS = 'http://www.w3.org/2000/svg'
     const exportSvg = document.createElementNS(svgNS, 'svg')
     exportSvg.setAttribute('xmlns', svgNS)
     exportSvg.setAttribute('width', '1200')
-    exportSvg.setAttribute('height', '1600')
-    exportSvg.setAttribute('viewBox', '0 0 1200 1600')
 
-    // Add white background
+    let totalH = 0
+    const clones: SVGSVGElement[] = []
+
+    svgElements.forEach((svg) => {
+      const clone = svg.cloneNode(true) as SVGSVGElement
+      // Attach to DOM visibly so getComputedStyle returns actual rendered values
+      clone.style.cssText = 'position:fixed;left:0;top:0;opacity:0.01;pointer-events:none;z-index:99999'
+      document.body.appendChild(clone)
+
+      // Inline all computed styles
+      const allEls = clone.querySelectorAll('*')
+      allEls.forEach((el) => {
+        const e = el as SVGElement & HTMLElement
+        const cs = window.getComputedStyle(e)
+        for (const attr of ['fill', 'stroke', 'font-size', 'font-family', 'font-weight', 'text-anchor', 'stroke-width', 'opacity']) {
+          const v = cs.getPropertyValue(attr)
+          if (v && v !== 'rgba(0, 0, 0, 0)' && !v.includes('var(') && !v.includes('oklch')) {
+            e.setAttribute(attr, v)
+          }
+        }
+      })
+
+      document.body.removeChild(clone)
+      clone.style.cssText = ''
+
+      const h = parseInt(clone.getAttribute('height') || '400')
+      totalH += h + 20
+      clones.push(clone)
+    })
+
+    exportSvg.setAttribute('height', String(totalH))
+
     const bg = document.createElementNS(svgNS, 'rect')
-    bg.setAttribute('width', '1200')
-    bg.setAttribute('height', '1600')
-    bg.setAttribute('fill', 'white')
+    bg.setAttribute('width', '100%')
+    bg.setAttribute('height', '100%')
+    bg.setAttribute('fill', '#ffffff')
     exportSvg.appendChild(bg)
 
     let yOffset = 0
-    svgElements.forEach((svg) => {
-      const clone = svg.cloneNode(true) as SVGElement
+    clones.forEach((clone) => {
       const g = document.createElementNS(svgNS, 'g')
       g.setAttribute('transform', `translate(0, ${yOffset})`)
-      g.appendChild(clone)
+      while (clone.firstChild) g.appendChild(clone.firstChild)
       exportSvg.appendChild(g)
-      yOffset += parseInt(svg.getAttribute('height') || '400') + 20
+      yOffset += parseInt(clone.getAttribute('height') || '400') + 20
     })
 
     const serializer = new XMLSerializer()
-    const svgStr = serializer.serializeToString(exportSvg)
+    const svgStr = '<?xml version="1.0" encoding="UTF-8"?>\n' + serializer.serializeToString(exportSvg)
     const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
     a.download = 'cluster_analysis.svg'
+    document.body.appendChild(a)
     a.click()
+    document.body.removeChild(a)
     URL.revokeObjectURL(url)
-  }, [])
-
-  const exportPNG = useCallback(async () => {
-    if (!chartRef.current) return
-    await exportElementAsPNG(chartRef.current, 'cluster_analysis_300dpi.png')
   }, [])
 
   if (data.length === 0) return null
@@ -148,25 +181,17 @@ export function ClusterCharts({ data }: ClusterChartsProps) {
               Settings
             </button>
             <button
-              onClick={exportSVG}
-              className="flex items-center text-xs font-medium rounded-md border border-border bg-background hover:bg-muted transition-colors cursor-pointer"
-              style={{ padding: '5px 10px', gap: 4 }}
+              onClick={() => downloadPanelAsPNG(chartRef.current, 'cluster_visualization')}
+              className="flex items-center text-xs rounded-md border border-primary/30 bg-primary/5 hover:bg-primary/10 text-primary transition-colors cursor-pointer"
+              style={{ padding: '4px 8px' }}
+              title="Export all charts as PNG"
             >
-              <FileType size={12} />
-              SVG
-            </button>
-            <button
-              onClick={exportPNG}
-              className="flex items-center text-xs font-medium rounded-md border border-border bg-background hover:bg-muted transition-colors cursor-pointer"
-              style={{ padding: '5px 10px', gap: 4 }}
-            >
-              <Download size={12} />
-              PNG (300dpi)
+              <Camera size={13} />
             </button>
           </div>
         </div>
 
-        {/* Global settings panel */}
+        {/* Settings panel description */}
         {showGlobalSettings && (
           <div className="border-b border-border bg-muted/30" style={{ padding: '12px 20px' }}>
             <div className="flex items-center flex-wrap" style={{ gap: 20 }}>
@@ -189,25 +214,28 @@ export function ClusterCharts({ data }: ClusterChartsProps) {
                 </span>
               </div>
               <p className="text-[10px] text-muted-foreground italic">
-                Applies to all charts below (t-SNE, Bubble, Heatmap, MFE, Silhouette, Distance Matrix)
+                Applies to all charts (A–D). Heatmap (C) and Distance Matrix are capped at 20 clusters for readability.
               </p>
             </div>
           </div>
         )}
 
         {/* Charts grid */}
-        <div ref={chartRef} style={{ padding: '16px 20px' }}>
-          {/* t-SNE — primary dimensionality reduction map */}
-          <div style={{ marginBottom: 20 }}>
-            <TSNEChart data={filteredData} maxVisibleClusters={maxVisibleClusters} />
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2" style={{ gap: 20 }}>
-            <BubbleChart data={filteredData} />
-            <ClusterSizeChart data={filteredData} />
-            <HeatmapChart data={filteredData} />
+        <div ref={chartRef} style={{ padding: '8px 20px 12px' }}>
+          <div className="grid grid-cols-1 lg:grid-cols-2" style={{ columnGap: 10, rowGap: 40, alignItems: 'start' }}>
+            <div style={{ alignSelf: 'end' }}>
+              <ClusterOverviewBubbleChart data={filteredData} clusterMeta={clusterMeta} compact />
+            </div>
+            <div style={{ alignSelf: 'end' }}>
+              <ClusterSizeChart data={filteredData} />
+            </div>
+            <div className="lg:row-span-2">
+              <HeatmapChart data={filteredData} />
+            </div>
             <MFEDistributionChart data={filteredData} />
-            <SilhouetteChart data={filteredData} />
+            <div style={{ marginTop: 10 }}>
+              <BubbleChart data={filteredData} />
+            </div>
             <DistanceMatrixChart data={filteredData} />
           </div>
         </div>
@@ -245,7 +273,7 @@ function BubbleChart({ data }: { data: SequenceCluster[] }) {
   const yAxisMetric = selectedMetric ?? defaultMetric
 
   const chartData = useMemo(() => {
-    return data.slice(0, 30).map((c, i) => {
+    return data.map((c, i) => {
       let xVal: number
       if (hasEnrichment) {
         let fold = c.avgEnrichmentFold
@@ -297,47 +325,70 @@ function BubbleChart({ data }: { data: SequenceCluster[] }) {
   const titleY = yAxisMetric === 'g4nn' ? 'G4NN Score' : yAxisMetric === 'g4hunter' ? 'G4Hunter Score' : yAxisMetric === 'cgcc' ? 'cGcC Score' : 'Stability (-MFE)'
 
   return (
-    <div>
-      <div className="flex items-center gap-3" style={{ marginBottom: 8 }}>
-        <p className="text-sm font-semibold text-muted-foreground">
-          A. {hasEnrichment ? `Enrichment Fold vs ${titleY}` : `Read Abundance vs ${titleY}`}
-        </p>
-        <select
-          value={yAxisMetric}
-          onChange={(e) => setSelectedMetric(e.target.value as YMetric)}
-          className="text-xs border border-border rounded px-2 py-0.5 bg-background text-foreground cursor-pointer hover:border-primary/50 transition-colors"
-        >
-          {Y_METRIC_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>{opt.label}</option>
-          ))}
-        </select>
+    <div id="panel-e-results" className="chart-panel">
+      <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
+        <div className="flex items-center gap-3">
+          <p className="text-sm font-semibold">
+            E. {hasEnrichment ? `Enrichment Fold vs ${titleY}` : `Read Abundance vs ${titleY}`}
+          </p>
+          <select
+            value={yAxisMetric}
+            onChange={(e) => setSelectedMetric(e.target.value as YMetric)}
+            className="text-xs border border-border rounded px-2 py-0.5 bg-background text-foreground cursor-pointer hover:border-primary/50 transition-colors"
+          >
+            {Y_METRIC_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex items-center" style={{ gap: 4 }}>
+          <button onClick={() => downloadPanelAsPNG(document.getElementById('panel-e-results'), 'E_bubble')} className="flex items-center text-xs rounded-md border border-border bg-background hover:bg-muted transition-colors cursor-pointer" title="Save as PNG" style={{ padding: '4px 8px' }}>
+            <Camera size={13} />
+          </button>
+          <button className="flex items-center text-xs rounded-md border border-border bg-background hover:bg-muted transition-colors cursor-pointer" title="Download CSV" style={{ padding: '4px 8px' }}>
+            <FileSpreadsheet size={13} />
+          </button>
+        </div>
       </div>
-      <p className="text-[10px] text-muted-foreground" style={{ marginBottom: 6 }}>
-        Bubble size = cluster members; Color = MFE (blue = stable, red = unstable)
-      </p>
-      <div style={{ width: '100%', height: 320 }}>
+      <div style={{ padding: '8px 20px 12px' }}>
+        <div style={{ width: 650, maxWidth: '100%', aspectRatio: '3/2', position: 'relative', margin: '0 auto' }}>
         <ResponsiveContainer width="100%" height="100%">
-          <ScatterChart margin={{ top: 10, right: 20, bottom: 40, left: 30 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-            <XAxis
+          <ScatterChart margin={ChartLayout.enrichmentBubble.margin}>
+                        <XAxis
               type="number"
               dataKey="x"
-              name={xName}
-              tick={{ fontSize: 12 }}
-              axisLine={{ strokeWidth: 1.5 }}
-              label={{ value: xLabel, position: 'bottom', offset: 16, style: { fontSize: 13, fontWeight: 600 } }}
+              name={xLabel}
+              domain={[0.01, 0.05]}
+              ticks={[0.01, 0.02, 0.03, 0.04, 0.05]}
+              tick={{ fontSize: 14, fill: '#000', fontFamily: 'system-ui, sans-serif', fontWeight: 600 }}
+              axisLine={{ strokeWidth: 1, stroke: '#000' }}
+              tickLine={{ stroke: '#000' }}
+              label={{ value: xLabel, position: 'bottom', offset: 12, style: { fontSize: 16, fontWeight: 600, fill: '#000', fontFamily: 'system-ui, sans-serif' } }}
             />
             <YAxis
               type="number"
               dataKey="y"
               name={yLabel}
-              tick={{ fontSize: 12 }}
-              axisLine={{ strokeWidth: 1.5 }}
-              label={{ value: yLabel, angle: -90, position: 'insideLeft', offset: -10, style: { fontSize: 13, fontWeight: 600 } }}
-              domain={yDomain}
+              tick={{ fontSize: 14, fill: '#000', fontFamily: 'system-ui, sans-serif', fontWeight: 600 }}
+              axisLine={{ strokeWidth: 1, stroke: '#000' }}
+              tickLine={{ stroke: '#000' }}
+              label={{
+                content: ({ viewBox }: any) => {
+                  const { x, y, height } = viewBox || { x: 0, y: 0, height: 0 };
+                  return (
+                    <text x={x - ChartLayout.enrichmentBubble.yLabelDx} y={y + height / 2} textAnchor="middle"
+                      transform={`rotate(-90, ${x - ChartLayout.enrichmentBubble.yLabelDx}, ${y + height / 2})`}
+                      fontSize={16} fontWeight={600} fill="#1a1a1a" fontFamily="system-ui, sans-serif">
+                      {yLabel}
+                    </text>
+                  );
+                },
+              }}
+              domain={yAxisMetric === 'g4nn' ? [0, 1.0] as [number, number] : yAxisMetric === 'g4hunter' ? [0, 1.0] as [number, number] : yAxisMetric === 'cgcc' ? [0, 8] as [number, number] : undefined}
+              ticks={yAxisMetric === 'g4nn' ? [0, 0.2, 0.4, 0.6, 0.8, 1.0] : yAxisMetric === 'g4hunter' ? [0, 0.2, 0.4, 0.6, 0.8, 1.0] : yAxisMetric === 'cgcc' ? [0, 2, 4, 6, 8] : undefined}
             />
             <ZAxis type="number" dataKey="z" range={[40, 400]} name="Members" />
-            <ReferenceLine y={yRefLine} stroke={COLORS.threshold} strokeDasharray="4 4" label={{ value: yRefLabel, position: 'right', style: { fontSize: 11, fill: 'var(--muted-foreground)' } }} />
+            <ReferenceLine y={yRefLine} stroke={COLORS.threshold} strokeDasharray="4 4" label={{ value: yRefLabel, position: 'right', style: { fontSize: 14, fontWeight: 600, fill: '#000' } }} />
             <Tooltip
               content={({ payload }) => {
                 if (!payload || payload.length === 0) return null
@@ -365,6 +416,25 @@ function BubbleChart({ data }: { data: SequenceCluster[] }) {
             </Scatter>
           </ScatterChart>
         </ResponsiveContainer>
+        {/* Legend — HTML floating overlay */}
+        <div data-legend="panel-e-results" style={{ position: 'absolute', top: 8, right: 12, display: 'flex', flexWrap: 'wrap', gap: 6, background: 'rgba(255,255,255,0.12)', borderRadius: 6, padding: '4px 8px', pointerEvents: 'none' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 14, fontWeight: 600, color: '#000' }}>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: 'oklch(0.6 0.2 250)', display: 'inline-block' }} />Stable
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 14, fontWeight: 600, color: '#000' }}>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: 'oklch(0.6 0.15 140)', display: 'inline-block' }} />Mid
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 14, fontWeight: 600, color: '#000' }}>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: 'oklch(0.6 0.2 25)', display: 'inline-block' }} />Unstable
+          </span>
+        </div>
+      </div>
+      </div>
+      {/* Caption */}
+      <div className="rounded-lg border border-border/50 bg-muted/5" style={{ padding: '10px 14px', marginTop: 4 }}>
+        <p className="text-xs font-semibold" style={{ marginBottom: 4 }}>
+          <strong>E.</strong> Bubble chart showing read abundance vs selected metric. Bubble area ∝ cluster size. MFE color: blue (stable, −25 kcal/mol) → red (unstable, 0 kcal/mol).
+        </p>
       </div>
     </div>
   )
@@ -375,37 +445,70 @@ function BubbleChart({ data }: { data: SequenceCluster[] }) {
    ═══════════════════════════════════════════════════════════════════ */
 
 function ClusterSizeChart({ data }: { data: SequenceCluster[] }) {
+  // G4 risk colors matching Evaluation tab
+  const G4_RISK_COLORS: Record<string, string> = {
+    High: 'oklch(0.55 0.20 15)',
+    Medium: 'oklch(0.65 0.18 85)',
+    Low: 'oklch(0.55 0.18 145)',
+  }
+
+  function g4RiskLevel(c: SequenceCluster): string {
+    const n = g4Pass(c)
+    if (n >= 2) return 'High'
+    if (n === 1) return 'Medium'
+    return 'Low'
+  }
+
   const chartData = useMemo(() => {
-    return data.slice(0, 20).map((c, i) => ({
+    return data.map((c, i) => ({
       rank: `#${i + 1}`,
       size: c.size,
-      isG4: g4Pass(c) >= 2,
+      risk: g4RiskLevel(c),
       fold: c.avgEnrichmentFold === Infinity ? 100 : (c.avgEnrichmentFold ?? 0),
     }))
   }, [data])
 
   return (
-    <div>
-      <p className="text-sm font-semibold text-muted-foreground" style={{ marginBottom: 8 }}>
-        B. Cluster Size Distribution (Top 20)
-      </p>
-      <p className="text-[10px] text-muted-foreground" style={{ marginBottom: 6 }}>
-        Green = G4 positive (≥2/3 thresholds passed)
-      </p>
-      <div style={{ width: '100%', height: 320 }}>
+    <div id="panel-b-results" className="chart-panel">
+      <div className="flex items-center justify-between" style={{ marginBottom: 6 }}>
+        <p className="text-sm font-semibold">B. Cluster Size Distribution</p>
+        <div className="flex items-center" style={{ gap: 4 }}>
+          <button onClick={() => downloadPanelAsPNG(document.getElementById('panel-b-results'), 'B_cluster_size')} className="flex items-center text-xs rounded-md border border-border bg-background hover:bg-muted transition-colors cursor-pointer" title="Save as PNG" style={{ padding: '4px 8px' }}>
+            <Camera size={13} />
+          </button>
+          <button className="flex items-center text-xs rounded-md border border-border bg-background hover:bg-muted transition-colors cursor-pointer" title="Download CSV" style={{ padding: '4px 8px' }}>
+            <FileSpreadsheet size={13} />
+          </button>
+        </div>
+      </div>
+      <div style={{ padding: '8px 20px 12px' }}>
+        <div style={{ width: 650, maxWidth: '100%', aspectRatio: '3/2', position: 'relative', margin: '0 auto' }}>
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={chartData} margin={{ top: 10, right: 10, bottom: 40, left: 20 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-            <XAxis
+          <BarChart data={chartData} margin={ChartLayout.clusterSize.margin}>
+                        <XAxis
               dataKey="rank"
-              tick={{ fontSize: 11 }}
-              axisLine={{ strokeWidth: 1.5 }}
-              label={{ value: 'Cluster Rank', position: 'bottom', offset: 16, style: { fontSize: 13, fontWeight: 600 } }}
+              tick={{ fontSize: 14, fill: '#000', fontFamily: 'system-ui, sans-serif', fontWeight: 600 }}
+              interval={4}
+              axisLine={{ strokeWidth: 1, stroke: '#000' }}
+              tickLine={{ stroke: '#000' }}
+              label={{ value: 'Cluster Rank', position: 'insideBottom', offset: -10, style: { fontSize: 16, fontWeight: 600, fill: '#000', fontFamily: 'system-ui, sans-serif' } }}
             />
             <YAxis
-              tick={{ fontSize: 12 }}
-              axisLine={{ strokeWidth: 1.5 }}
-              label={{ value: 'Member Count', angle: -90, position: 'insideLeft', offset: -5, style: { fontSize: 13, fontWeight: 600 } }}
+              tick={{ fontSize: 14, fill: '#000', fontFamily: 'system-ui, sans-serif', fontWeight: 600 }}
+              axisLine={{ strokeWidth: 1, stroke: '#000' }}
+              tickLine={{ stroke: '#000' }}
+              label={{
+                content: ({ viewBox }: any) => {
+                  const { x, y, height } = viewBox || { x: 0, y: 0, height: 0 };
+                  return (
+                    <text x={x - ChartLayout.clusterSize.yLabelDx} y={y + height / 2} textAnchor="middle"
+                      transform={`rotate(-90, ${x - ChartLayout.clusterSize.yLabelDx}, ${y + height / 2})`}
+                      fontSize={16} fontWeight={600} fill="#1a1a1a" fontFamily="system-ui, sans-serif">
+                      Member Count
+                    </text>
+                  );
+                },
+              }}
             />
             <Tooltip
               contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid var(--border)' }}
@@ -413,11 +516,30 @@ function ClusterSizeChart({ data }: { data: SequenceCluster[] }) {
             />
             <Bar dataKey="size" radius={[4, 4, 0, 0]} isAnimationActive={false}>
               {chartData.map((entry, idx) => (
-                <Cell key={idx} fill={entry.isG4 ? COLORS.g4pos : COLORS.g4neg} />
+                <Cell key={idx} fill={G4_RISK_COLORS[entry.risk] || COLORS.g4neg} />
               ))}
             </Bar>
           </BarChart>
         </ResponsiveContainer>
+        {/* Legend — HTML floating overlay */}
+        <div data-legend="panel-b-results" style={{ position: 'absolute', top: 8, right: 12, display: 'flex', gap: 8, background: 'rgba(255,255,255,0.12)', borderRadius: 6, padding: '4px 8px', pointerEvents: 'none' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 14, fontWeight: 600, color: '#000' }}>
+            <span style={{ width: 8, height: 8, borderRadius: 1, background: G4_RISK_COLORS.High, display: 'inline-block' }} />High G4
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 14, fontWeight: 600, color: '#000' }}>
+            <span style={{ width: 8, height: 8, borderRadius: 1, background: G4_RISK_COLORS.Medium, display: 'inline-block' }} />Medium G4
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 14, fontWeight: 600, color: '#000' }}>
+            <span style={{ width: 8, height: 8, borderRadius: 1, background: G4_RISK_COLORS.Low, display: 'inline-block' }} />Low G4
+          </span>
+        </div>
+      </div>
+      </div>
+      {/* Caption */}
+      <div className="rounded-lg border border-border/50 bg-muted/5" style={{ padding: '10px 14px', marginTop: 4 }}>
+        <p className="text-xs font-semibold" style={{ marginBottom: 4 }}>
+          <strong>B.</strong> Cluster size distribution by G4 risk level. Colors represent composite G4 risk (cGcC&gt;4.5, G4Hunter&gt;0.9, G4NN&gt;0.5). High G4 = 2–3 criteria met; Medium = 1; Low = 0.
+        </p>
       </div>
     </div>
   )
@@ -431,7 +553,7 @@ function HeatmapChart({ data }: { data: SequenceCluster[] }) {
   const metrics = ['cGcC', 'G4Hunter', 'G4NN', 'MFE'] as const
   const thresholds = [4.5, 0.9, 0.5, -10] // MFE threshold: stable if <= -10
 
-  const topClusters = data.slice(0, 15)
+  const topClusters = data.slice(0, Math.min(20, data.length))
 
   // Normalize values for color mapping
   const normalized = useMemo(() => {
@@ -459,16 +581,26 @@ function HeatmapChart({ data }: { data: SequenceCluster[] }) {
     return `oklch(${l.toFixed(3)} ${c.toFixed(3)} 260)`
   }
 
-  const cellSize = 40
-  const labelWidth = 48
-  const headerHeight = 55
+  const cellSize = 42
+  const labelWidth = 40
+  const headerHeight = 105
 
   return (
-    <div>
-      <p className="text-sm font-semibold text-muted-foreground" style={{ marginBottom: 8 }}>
-        C. Multi-Score Heatmap
-      </p>
-      <p className="text-[10px] text-muted-foreground" style={{ marginBottom: 6 }}>
+    <div id="panel-c-results" className="chart-panel">
+      <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
+        <p className="text-sm font-semibold">
+          C. Multi-Score Heatmap
+        </p>
+        <div className="flex items-center" style={{ gap: 4 }}>
+          <button onClick={() => downloadPanelAsPNG(document.getElementById('panel-c-results'), 'C_heatmap')} className="flex items-center text-xs rounded-md border border-border bg-background hover:bg-muted transition-colors cursor-pointer" title="Save as PNG" style={{ padding: '4px 8px' }}>
+            <Camera size={13} />
+          </button>
+          <button className="flex items-center text-xs rounded-md border border-border bg-background hover:bg-muted transition-colors cursor-pointer" title="Download CSV" style={{ padding: '4px 8px' }}>
+            <FileSpreadsheet size={13} />
+          </button>
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground" style={{ marginBottom: 6 }}>
         Intensity indicates relative score magnitude; darker = higher
       </p>
       <div className="overflow-x-auto">
@@ -478,41 +610,34 @@ function HeatmapChart({ data }: { data: SequenceCluster[] }) {
           height={headerHeight + topClusters.length * cellSize + 10}
           style={{ display: 'block', margin: '0 auto' }}
         >
-          {/* Column headers */}
-          {metrics.map((m, col) => (
-            <text
-              key={m}
-              x={labelWidth + col * cellSize + cellSize / 2}
-              y={headerHeight - 8}
-              textAnchor="middle"
-              style={{ fontSize: 11, fill: 'var(--muted-foreground)', fontWeight: 600 }}
-            >
-              {m}
-            </text>
-          ))}
-
-          {/* Threshold markers */}
-          {metrics.map((_, col) => (
-            <text
-              key={`th-${col}`}
-              x={labelWidth + col * cellSize + cellSize / 2}
-              y={headerHeight - 24}
-              textAnchor="middle"
-              style={{ fontSize: 9, fill: 'var(--muted-foreground)' }}
-            >
-              {col === 3 ? '≤-10' : `>${thresholds[col]}`}
-            </text>
-          ))}
+          {/* Column headers — name + threshold combined, -45°, positioned above-right of cells */}
+          {metrics.map((m, col) => {
+            const cx = labelWidth + col * cellSize + cellSize / 2
+            const cy = headerHeight - 8
+            const label = col === 3 ? `${m} \u2264-10` : `${m} >${thresholds[col]}`
+            return (
+              <text
+                key={m}
+                x={cx}
+                y={cy}
+                textAnchor="start"
+                transform={`rotate(-45, ${cx}, ${cy})`}
+                style={{ fontSize: 12, fill: '#000', fontWeight: 600 }}
+              >
+                {label}
+              </text>
+            )
+          })}
 
           {/* Rows */}
           {topClusters.map((cluster, row) => (
             <g key={row}>
-              {/* Row label */}
+              {/* Row label — show both rank and cluster ID */}
               <text
                 x={labelWidth - 6}
                 y={headerHeight + row * cellSize + cellSize / 2 + 3}
                 textAnchor="end"
-                style={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
+                style={{ fontSize: 13, fill: 'var(--foreground)', fontWeight: 600 }}
               >
                 #{row + 1}
               </text>
@@ -574,18 +699,24 @@ function HeatmapChart({ data }: { data: SequenceCluster[] }) {
           <text
             x={labelWidth + metrics.length * cellSize + 35}
             y={headerHeight + 8}
-            style={{ fontSize: 10, fill: 'var(--muted-foreground)' }}
+            style={{ fontSize: 12, fontWeight: 600, fill: 'var(--muted-foreground)' }}
           >
             High
           </text>
           <text
             x={labelWidth + metrics.length * cellSize + 35}
             y={headerHeight + topClusters.length * cellSize}
-            style={{ fontSize: 10, fill: 'var(--muted-foreground)' }}
+            style={{ fontSize: 12, fontWeight: 600, fill: 'var(--muted-foreground)' }}
           >
             Low
           </text>
         </svg>
+      </div>
+      {/* Caption */}
+      <div className="rounded-lg border border-border/50 bg-muted/5" style={{ padding: '10px 14px', marginTop: 4 }}>
+        <p className="text-xs font-semibold" style={{ marginBottom: 4 }}>
+          <strong>C.</strong> Multi-score heatmap comparing cGcC, G4Hunter, and G4NN scores across cluster representatives. Higher values = stronger G4 potential. G4 risk: High (2–3 criteria) · Medium (1) · Low (0).
+        </p>
       </div>
     </div>
   )
@@ -599,7 +730,6 @@ function MFEDistributionChart({ data }: { data: SequenceCluster[] }) {
   const chartData = useMemo(() => {
     return data
       .filter((c) => c.rnaFold && c.rnaFoldNoG4)
-      .slice(0, 25)
       .map((c, i) => ({
         rank: `#${i + 1}`,
         withG4: c.rnaFold!.mfe,
@@ -611,7 +741,7 @@ function MFEDistributionChart({ data }: { data: SequenceCluster[] }) {
   if (chartData.length === 0) {
     return (
       <div>
-        <p className="text-sm font-semibold text-muted-foreground" style={{ marginBottom: 8 }}>
+        <p className="text-sm font-semibold" style={{ marginBottom: 8 }}>
           D. MFE Comparison: G4 Enabled vs Disabled
         </p>
         <p className="text-xs text-muted-foreground italic">No RNA fold data available.</p>
@@ -620,27 +750,48 @@ function MFEDistributionChart({ data }: { data: SequenceCluster[] }) {
   }
 
   return (
-    <div>
-      <p className="text-sm font-semibold text-muted-foreground" style={{ marginBottom: 8 }}>
-        D. MFE Comparison: G4 Enabled vs Disabled
-      </p>
-      <p className="text-[10px] text-muted-foreground" style={{ marginBottom: 6 }}>
-        ΔG comparison — more negative = more thermodynamically stable
-      </p>
-      <div style={{ width: '100%', height: 320 }}>
+    <div id="panel-d-results" className="chart-panel">
+      <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
+        <p className="text-sm font-semibold">
+          D. MFE Comparison: G4 Enabled vs Disabled
+        </p>
+        <div className="flex items-center" style={{ gap: 4 }}>
+          <button onClick={() => downloadPanelAsPNG(document.getElementById('panel-d-results'), 'D_MFE')} className="flex items-center text-xs rounded-md border border-border bg-background hover:bg-muted transition-colors cursor-pointer" title="Save as PNG" style={{ padding: '4px 8px' }}>
+            <Camera size={13} />
+          </button>
+          <button className="flex items-center text-xs rounded-md border border-border bg-background hover:bg-muted transition-colors cursor-pointer" title="Download CSV" style={{ padding: '4px 8px' }}>
+            <FileSpreadsheet size={13} />
+          </button>
+        </div>
+      </div>
+      <div style={{ padding: '8px 20px 12px' }}>
+        <div style={{ width: 650, maxWidth: '100%', aspectRatio: '3/2', position: 'relative', margin: '0 auto' }}>
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={chartData} margin={{ top: 10, right: 10, bottom: 40, left: 25 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-            <XAxis
+          <BarChart data={chartData} margin={ChartLayout.mfeDistribution.margin}>
+                        <XAxis
               dataKey="rank"
-              tick={{ fontSize: 11 }}
-              axisLine={{ strokeWidth: 1.5 }}
-              label={{ value: 'Cluster Rank', position: 'bottom', offset: 16, style: { fontSize: 13, fontWeight: 600 } }}
+              // @ts-expect-error angle is supported by recharts but not in type defs
+              tick={{ fontSize: 14, angle: -30, textAnchor: 'end', fill: '#000', fontFamily: 'system-ui, sans-serif', fontWeight: 600 }}
+              axisLine={{ strokeWidth: 1, stroke: '#000' }}
+              tickLine={{ stroke: '#000' }}
+              label={{ value: 'Cluster Rank', position: 'bottom', offset: 20, style: { fontSize: 16, fontWeight: 600, fill: '#000', fontFamily: 'system-ui, sans-serif' } }}
             />
             <YAxis
-              tick={{ fontSize: 12 }}
-              axisLine={{ strokeWidth: 1.5 }}
-              label={{ value: 'MFE (kcal/mol)', angle: -90, position: 'insideLeft', offset: -8, style: { fontSize: 13, fontWeight: 600 } }}
+              tick={{ fontSize: 14, fill: '#000', fontFamily: 'system-ui, sans-serif', fontWeight: 600 }}
+              axisLine={{ strokeWidth: 1, stroke: '#000' }}
+              tickLine={{ stroke: '#000' }}
+              label={{
+                content: ({ viewBox }: any) => {
+                  const { x, y, height } = viewBox || { x: 0, y: 0, height: 0 };
+                  return (
+                    <text x={x - ChartLayout.mfeDistribution.yLabelDx} y={y + height / 2} textAnchor="middle"
+                      transform={`rotate(-90, ${x - ChartLayout.mfeDistribution.yLabelDx}, ${y + height / 2})`}
+                      fontSize={16} fontWeight={600} fill="#1a1a1a" fontFamily="system-ui, sans-serif">
+                      -MFE (kcal/mol)
+                    </text>
+                  );
+                },
+              }}
             />
             <Tooltip
               contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid var(--border)' }}
@@ -649,14 +800,26 @@ function MFEDistributionChart({ data }: { data: SequenceCluster[] }) {
                 name === 'withG4' ? 'With G4' : 'Without G4',
               ]}
             />
-            <Legend
-              wrapperStyle={{ fontSize: 12 }}
-              formatter={(value) => (value === 'withG4' ? 'With G-Quadruplex' : 'Without G-Quadruplex')}
-            />
             <Bar dataKey="withG4" fill={COLORS.mfeStable} radius={[3, 3, 0, 0]} isAnimationActive={false} />
             <Bar dataKey="withoutG4" fill={COLORS.accent} radius={[3, 3, 0, 0]} isAnimationActive={false} />
           </BarChart>
         </ResponsiveContainer>
+        {/* Legend — HTML floating overlay */}
+        <div data-legend="panel-d-results" style={{ position: 'absolute', top: 238, right: 12, display: 'flex', flexWrap: 'wrap', gap: 8, background: 'rgba(255,255,255,0.12)', borderRadius: 6, padding: '4px 8px', pointerEvents: 'none' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 14, fontWeight: 600, color: '#000' }}>
+            <span style={{ width: 8, height: 8, borderRadius: 1, background: COLORS.mfeStable, display: 'inline-block' }} />With G4
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 14, fontWeight: 600, color: '#000' }}>
+            <span style={{ width: 8, height: 8, borderRadius: 1, background: COLORS.accent, display: 'inline-block' }} />Without G4
+          </span>
+        </div>
+      </div>
+      </div>
+      {/* Caption */}
+      <div className="rounded-lg border border-border/50 bg-muted/5" style={{ padding: '10px 14px', marginTop: 4 }}>
+        <p className="text-xs font-semibold" style={{ marginBottom: 4 }}>
+          <strong>D.</strong> MFE comparison of cluster representatives with G4 enabled vs disabled. More negative ΔG = more thermodynamically stable secondary structure.
+        </p>
       </div>
     </div>
   )
