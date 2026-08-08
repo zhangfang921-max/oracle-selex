@@ -36,6 +36,7 @@ Full documentation with mode descriptions, result interpretation, and algorithm 
 If you use ORACLE in your research, please cite:
 
 > Wu, T.-Y., Wang, J., Santoso, R.J., Yarshova, M., Kang, J., Feng, Y., Xue, Y., Li, Y., Zhang, F.\* & Kwok, C.K.\* L-RNA Aptamer–Oligonucleotide Conjugates Enable Selective Targeting of Oncogenic RNA G-Quadruplexes. In preparation (2026).
+> 
 A Zenodo DOI will be available upon publication.
 
 ## License
