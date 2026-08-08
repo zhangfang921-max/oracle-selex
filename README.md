@@ -45,6 +45,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 ## Contact
 
-Fang Zhang — fang9.zhang@polyu.edu.hk  
+Fang Zhang — zhangfang921@gmail.com  
 Department of Food Science and Nutrition, The Hong Kong Polytechnic University  
 College of Biological Science and Engineering, Fuzhou University
