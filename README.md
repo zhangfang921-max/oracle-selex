@@ -6,8 +6,8 @@ ORACLE (Oligonucleotide Read Analysis & Candidate Library Explorer) takes your N
 
 ## Features
 
-- **Four clustering modes**: Sequence Auto-Optimal ML, Structure Profile, Sequence Identity, Structure (dot-bracket)
-- **Multi-algorithm evaluation**: KMeans, Hierarchical (Ward), GMM, Spectral, DBSCAN, HDBSCAN — optimal partition selected by silhouette/DB/CH criterion
+- **Two clustering modes**: Auto-Optimal ML (k-mer features, auto-selects best algorithm & K) and Sequence Identity (Levenshtein edit distance)
+- **Multi-algorithm evaluation**: KMeans, Hierarchical, GMM, Spectral, DBSCAN, HDBSCAN — optimal partition selected by silhouette/DB/CH criterion
 - **Statistical validation**: Permutation testing (1000 iterations) for cluster significance
 - **G4 screening**: G4Hunter, cGcC, and G4NN scoring with G4 risk classification
 - **RNA structure**: ViennaRNA folding with MFE and dot-bracket structure prediction
@@ -19,13 +19,13 @@ ORACLE (Oligonucleotide Read Analysis & Candidate Library Explorer) takes your N
 1. Go to [oracle.oligocluster.com](https://oracle.oligocluster.com)
 2. Click "New Analysis", enter a name
 3. Upload your FASTA file (sequences with read counts in headers)
-4. Choose **Sequence Auto-Optimal ML** (recommended for most users)
+4. Choose **Auto-Optimal ML** (recommended for most users)
 5. Click **Run Clustering**
 6. Explore results across tabs and export figures
 
 ## Input Format
 
-FASTA or FASTQ files. ORACLE parses read counts automatically from the last numeric value in each header (e.g., `>seq-1234` → count = 1234). Primer trimming and T→U conversion are handled automatically.
+FASTA files. ORACLE parses read counts automatically from the last numeric value in each header (e.g., `>seq-1234` → count = 1234). Primer trimming and T→U conversion are handled automatically.
 
 ## Documentation
 
