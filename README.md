@@ -1,4 +1,5 @@
 # ORACLE — Oligonucleotide Read Analysis & Candidate Library Explorer
+ DOI: 10.5281/zenodo.21846311 
 
 **A free, web-based platform for analyzing high-throughput sequencing data from SELEX experiments.**
 
