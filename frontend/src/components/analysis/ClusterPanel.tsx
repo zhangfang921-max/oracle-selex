@@ -225,10 +225,10 @@ function g4PassCount(cluster: SequenceCluster): number {
 function ClusterCard({ cluster, rank, enrichmentScore, enrichmentPvalue }: { cluster: SequenceCluster; rank: number; enrichmentScore?: number; enrichmentPvalue?: number }) {
   const [expanded, setExpanded] = useState(false)
 
-  const passCount = g4PassCount(cluster)
-  const g4BadgeStyle = passCount >= 2
+  const g4Risk = cluster.g4Risk ?? 'Low'
+  const g4BadgeStyle = g4Risk === 'High'
     ? 'bg-emerald-500/12 text-emerald-600 border-emerald-500/30'
-    : passCount === 1
+    : g4Risk === 'Medium'
       ? 'bg-amber-500/12 text-amber-600 border-amber-500/30'
       : 'bg-slate-500/10 text-slate-500 border-slate-500/20'
 
@@ -329,7 +329,7 @@ Clusters are sorted by Z-score descending — the most significantly enriched cl
                 style={{ padding: '4px 12px', gap: 5, fontSize: 'var(--font-size-small)' }}
               >
                 <FlaskConical size={12} />
-                G4 {passCount}/3
+                G4 {cluster.g4Risk ?? 'Low'}
               </span>
               {expanded ? <ChevronDown size={18} className="text-muted-foreground" /> : <ChevronRight size={18} className="text-muted-foreground" />}
             </div>

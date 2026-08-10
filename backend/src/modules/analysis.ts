@@ -382,10 +382,14 @@ analysisRouter.post('/cluster', async (req: Request, res: Response) => {
 
   const repsWithG4 = clusters.map((cluster, idx) => {
     const g4 = g4Results[idx] ?? scoreG4(cluster.representative)
+    // G4 Risk based on threshold pass count — matches G4RNA Screener
+    // published thresholds and ORACLE+ classification (cGcC>4.5, G4Hunter>0.9, G4NN>0.5)
+    const passCount = (g4.cGcC > 4.5 ? 1 : 0) + ((g4.g4Hunter ?? 0) > 0.9 ? 1 : 0) + ((g4.g4NN ?? 0) > 0.5 ? 1 : 0)
+    const g4Risk = passCount >= 2 ? 'High' as const : passCount >= 1 ? 'Medium' as const : 'Low' as const
     return {
       ...cluster,
       g4Score: g4.g4Score,
-      g4Risk: g4.g4Score >= 1.0 ? 'High' as const : g4.g4Score >= 0.5 ? 'Medium' as const : 'Low' as const,
+      g4Risk,
       numG4Motifs: g4.numG4Motifs,
       cGcC: g4.cGcC,
       g4Hunter: g4.g4Hunter,

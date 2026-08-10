@@ -453,10 +453,7 @@ function ClusterSizeChart({ data }: { data: SequenceCluster[] }) {
   }
 
   function g4RiskLevel(c: SequenceCluster): string {
-    const n = g4Pass(c)
-    if (n >= 2) return 'High'
-    if (n === 1) return 'Medium'
-    return 'Low'
+    return c.g4Risk ?? 'Low'
   }
 
   const chartData = useMemo(() => {

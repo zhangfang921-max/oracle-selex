@@ -71,8 +71,11 @@ export async function scoreG4Batch(sequences: string[]): Promise<G4Result[]> {
         const motifs = findG4Motifs(seq.replace(/U/g, 'T'))
         const gRichRegions = findGRichRegions(seq)
 
-        // Composite score based on threshold passing
-        const cGcCNorm = Math.min(Math.max(item.cGcC / 10, 0), 1)
+        // Composite score based on threshold passing.
+        // cGcC normalization uses sigmoid centred at the published G4RNA
+        // Screener threshold (4.5) — prevents saturation that would occur
+        // with a simple /10 divisor on the Python scorer's output scale.
+        const cGcCNorm = 1 / (1 + Math.exp(-(item.cGcC - 4.5) / 2.5))
         const g4HNorm = Math.min(Math.abs(item.g4Hunter) / 2, 1)
         const g4NNNorm = Math.min(Math.max(item.g4NN, 0), 1)
         const motifNorm = motifs.length > 0
