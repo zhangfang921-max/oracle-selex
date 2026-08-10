@@ -138,8 +138,10 @@ export default function AnalysisPage() {
     permutation?: {
       p_values: number[]
       significant: boolean[]
+      significant_bonferroni?: boolean[]
       cluster_sizes: number[]
       threshold: number
+      bonferroni_threshold?: number
     }
     abundance?: {
       enrichment_scores: number[]
@@ -286,6 +288,7 @@ export default function AnalysisPage() {
             featureMode: 'auto',
             doPermutationTest: true,
             nPermutations: 1000,
+            scanK: true,
             selectionCriterion,
             readCounts,
             ...(abundanceThreshold > 0 ? { abundanceThreshold } : {}),

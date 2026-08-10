@@ -20,8 +20,10 @@ import { downloadPanelAsPNG } from '@/lib/svg-export'
 interface PermutationData {
   p_values: number[]
   significant: boolean[]
+  significant_bonferroni?: boolean[]
   cluster_sizes: number[]
   threshold: number
+  bonferroni_threshold?: number
   nPermutations?: number
   null_distributions?: number[][]
   observed_compactness?: number[]
@@ -123,6 +125,7 @@ function SilhouetteCard({ score, quality }: { score: number; quality: string }) 
 /* ── Permutation mini-card ──────────────────────────────────────── */
 function PermutationCard({ permutation }: { permutation: PermutationData }) {
   const sigCount = permutation.significant.filter(Boolean).length
+  const bonfSigCount = permutation.significant_bonferroni?.filter(Boolean).length ?? 0
   const total = permutation.significant.length
   const color = sigCount > 0 ? 'oklch(0.65 0.18 155)' : 'oklch(0.6 0.03 260)'
 
@@ -138,6 +141,14 @@ function PermutationCard({ permutation }: { permutation: PermutationData }) {
         </span>
         <span className="text-xs text-muted-foreground" style={{ marginBottom: 2 }}>significant at p&lt;{permutation.threshold}</span>
       </div>
+      {permutation.bonferroni_threshold != null && (
+        <div style={{ marginTop: 4 }}>
+          <span className="text-xs font-semibold" style={{ color }}>
+            ★ {bonfSigCount}/{total}
+          </span>
+          <span className="text-xs text-muted-foreground"> Bonferroni-corrected (p&lt;{permutation.bonferroni_threshold.toExponential(2)})</span>
+        </div>
+      )}
       <div className="rounded-full overflow-hidden" style={{ height: 4, marginTop: 10, background: 'var(--muted)' }}>
         <div className="h-full rounded-full transition-all" style={{ width: `${total > 0 ? (sigCount / total) * 100 : 0}%`, background: color }} />
       </div>

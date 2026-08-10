@@ -223,7 +223,7 @@ def run_clustering(features: np.ndarray, max_clusters: int = 30,
             'weightingScheme': 'sqrt'
         }
     """
-    from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering
+    from sklearn.cluster import KMeans, AgglomerativeClustering
     from sklearn.mixture import GaussianMixture
 
     n = len(features)
@@ -327,65 +327,7 @@ def run_clustering(features: np.ndarray, max_clusters: int = 30,
     except Exception:
         pass
 
-    # ================================================================
-    # --- HDBSCAN (密度聚类 — 不加权，破坏密度语义) ---
-    # ================================================================
-    try:
-        import hdbscan
-        clusterer = hdbscan.HDBSCAN(min_cluster_size=max(2, n // 50),
-                                     min_samples=1, prediction_data=True)
-        labels = clusterer.fit_predict(features)
-        n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
-        if n_clusters >= 2:
-            dbcv = _dbcv_score(features, labels)
-            if -1 in labels:
-                from sklearn.neighbors import NearestNeighbors
-                nn = NearestNeighbors(n_neighbors=1)
-                nn.fit(features[labels >= 0])
-                noise_idx = np.where(labels == -1)[0]
-                if len(noise_idx) > 0:
-                    _, idx = nn.kneighbors(features[noise_idx])
-                    labels[noise_idx] = labels[labels >= 0][idx[:, 0]]
 
-            results.append({'labels': labels.tolist(), 'method': 'hdbscan',
-                            'n_clusters': n_clusters, 'metrics': {'dbcv': dbcv},
-                            'weighted': False,
-                            'weightNote': 'density-based — weighting not applicable'})
-    except ImportError:
-        pass
-    except Exception:
-        pass
-
-    # ================================================================
-    # --- DBSCAN (密度聚类 — 不加权，破坏密度语义) ---
-    # ================================================================
-    try:
-        from sklearn.neighbors import NearestNeighbors
-        k = min(5, n - 1)
-        nn = NearestNeighbors(n_neighbors=k)
-        nn.fit(features)
-        k_dist = np.sort(nn.kneighbors(features)[0][:, -1])
-        eps = np.percentile(k_dist, 90)
-
-        db = DBSCAN(eps=eps, min_samples=max(2, n // 100))
-        labels = db.fit_predict(features)
-        n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
-        if n_clusters >= 2:
-            dbcv = _dbcv_score(features, labels)
-            if -1 in labels:
-                valid_mask = labels >= 0
-                if valid_mask.sum() > 0:
-                    nn = NearestNeighbors(n_neighbors=1)
-                    nn.fit(features[valid_mask])
-                    noise_idx = np.where(labels == -1)[0]
-                    _, idx = nn.kneighbors(features[noise_idx])
-                    labels[noise_idx] = labels[valid_mask][idx[:, 0]]
-            results.append({'labels': labels.tolist(), 'method': 'dbscan',
-                            'n_clusters': n_clusters, 'metrics': {'dbcv': dbcv},
-                            'weighted': False,
-                            'weightNote': 'density-based — weighting not applicable'})
-    except Exception:
-        pass
 
     if not results:
         return {'labels': [0] * n, 'method': 'fallback', 'n_clusters': 1,
@@ -475,11 +417,15 @@ def permutation_test(features: np.ndarray, labels: List[int],
         p_val = (np.sum(perm_comp_arr >= obs_comp) + 1) / (n_perm + 1)
         p_values.append(float(p_val))
 
+    n_tests = len(p_values)
+    bonf_threshold = 0.05 / max(n_tests, 1)
     return {
         'p_values': p_values,
         'significant': [p < 0.05 for p in p_values],
+        'significant_bonferroni': [p < bonf_threshold for p in p_values],
         'cluster_sizes': cluster_sizes,
         'threshold': 0.05,
+        'bonferroni_threshold': round(bonf_threshold, 6),
         'null_distributions': null_distributions,
         'observed_compactness': observed_compactness,
     }

@@ -176,7 +176,7 @@ def gapped_kmer_features(sequence: str, k: int = 3, gap: int = 1) -> np.ndarray:
 
 def prepare_features(sequences: list, forward_primer: str = None, reverse_primer: str = None,
                      structural_scores: list = None, feature_mode: str = 'kmer',
-                     standardize: bool = True):
+                     standardize: bool = True, k_override: int = None):
     """
     Common feature preparation: primer detection, variable region extraction,
     k-mer feature matrix, standardization.
@@ -215,7 +215,9 @@ def prepare_features(sequences: list, forward_primer: str = None, reverse_primer
 
     # Choose k-mer size based on variable region length
     avg_len = sum(len(s) for s in var_regions) / max(len(var_regions), 1)
-    if avg_len < 10:
+    if k_override is not None:
+        k = k_override
+    elif avg_len < 10:
         k = 2
     elif avg_len < 18:
         k = 3
@@ -670,7 +672,8 @@ def compute_optimal_clustering(sequences: list, method: str = 'auto', max_cluste
                                 do_permutation_test: bool = False, n_permutations: int = 1000,
                                 selection_criterion: str = 'silhouette',
                                 read_counts: list = None,
-                                abundance_threshold: int = 0) -> dict:
+                                abundance_threshold: int = 0,
+                                scan_k: bool = True) -> dict:
     """
     Compute optimal clustering using k-mer features + ML algorithms.
     Enhanced with GMM, Spectral Clustering.
@@ -697,11 +700,59 @@ def compute_optimal_clustering(sequences: list, method: str = 'auto', max_cluste
     if feature_mode == 'hybrid' and structural_scores and len(structural_scores) == n:
         fm = 'hybrid'
 
-    X, k, avg_len, prefix_len, suffix_len = prepare_features(
-        sequences, forward_primer, reverse_primer,
-        structural_scores=structural_scores, feature_mode=fm
-    )
-    dist_matrix = cosine_distances(X)
+    # k-mer size scanning: try k=2,3,4 and select best silhouette
+    k_candidates = [2, 3, 4] if scan_k else [None]
+    # Filter k values that are feasible (k < min variable region length)
+    avg_seq_len = sum(len(s) for s in sequences) / max(n, 1)
+    k_candidates = [kc for kc in k_candidates if kc is None or kc <= avg_seq_len - 1]
+    if not k_candidates:
+        k_candidates = [None]
+
+    # For single k, use as-is; for scan, pick best
+    if len(k_candidates) == 1 and k_candidates[0] is None:
+        X, k, avg_len, prefix_len, suffix_len = prepare_features(
+            sequences, forward_primer, reverse_primer,
+            structural_scores=structural_scores, feature_mode=fm
+        )
+        dist_matrix = cosine_distances(X)
+        print(f'[OptimalCluster] n={n}, features={X.shape[1]}, k={k}, mode={fm}, criterion={selection_criterion}', flush=True)
+    else:
+        # k-scanning: try each k, run quick silhouette eval for all methods at K=5,10
+        best_k_scan = None
+        best_k_score = -float('inf')
+        for k_try in k_candidates:
+            X_try, _, avg_len_try, prefix_len_try, suffix_len_try = prepare_features(
+                sequences, forward_primer, reverse_primer,
+                structural_scores=structural_scores, feature_mode=fm,
+                k_override=k_try
+            )
+            dist_try = cosine_distances(X_try)
+            # Quick eval: hierarchical at K=5 and K=10
+            quick_score = -float('inf')
+            for quick_k in [5, 10, 15]:
+                if quick_k >= n or quick_k > max_clusters:
+                    continue
+                try:
+                    agg = AgglomerativeClustering(n_clusters=quick_k, metric='precomputed', linkage='average')
+                    lbs = agg.fit_predict(dist_try)
+                    if len(set(lbs)) >= 2:
+                        s = silhouette_score(dist_try, lbs, metric='precomputed')
+                        if s > quick_score:
+                            quick_score = s
+                except Exception:
+                    pass
+            print(f'[OptimalCluster] k-scan: k={k_try}, quick_silhouette={quick_score:.4f}', flush=True)
+            if quick_score > best_k_score:
+                best_k_score = quick_score
+                best_k_scan = k_try
+        # Use best k
+        X, k, avg_len, prefix_len, suffix_len = prepare_features(
+            sequences, forward_primer, reverse_primer,
+            structural_scores=structural_scores, feature_mode=fm,
+            k_override=best_k_scan
+        )
+        dist_matrix = cosine_distances(X)
+        print(f'[OptimalCluster] k-scan: selected k={k}, features={X.shape[1]}, mode={fm}', flush=True)
 
     print(f'[OptimalCluster] n={n}, features={X.shape[1]}, mode={fm}, criterion={selection_criterion}', flush=True)
 
@@ -904,11 +955,13 @@ def compute_optimal_clustering(sequences: list, method: str = 'auto', max_cluste
                         continue
 
             elif m == 'spectral':
-                # Spectral — convert distance to affinity
-                affinity_matrix = 1 - np.clip(dist_matrix, 0, 1)
+                # Spectral — RBF kernel from cosine distance
+                # sigma = median pairwise distance (robust auto-estimate)
+                flat_d = dist_matrix[dist_matrix > 0] if np.any(dist_matrix > 0) else np.array([1.0])
+                sigma = float(np.median(flat_d)) if len(flat_d) > 0 else 1.0
+                sigma = max(sigma, 0.01)  # floor to avoid division by zero
+                affinity_matrix = np.exp(-dist_matrix ** 2 / (2 * sigma ** 2))
                 np.fill_diagonal(affinity_matrix, 1)
-                # Ensure positive semi-definite
-                affinity_matrix = np.clip(affinity_matrix, 0, None)
 
                 for num_k in coarse_ks:
                     try:
