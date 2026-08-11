@@ -153,7 +153,7 @@ export function ClusterEvaluationFigure({
                 )}
                 {perClusterSilWithScore.map((item, i) => {
                   const barW = Math.max(4, (1 - item.pValue) * 500)
-                  const color = item.significant ? 'oklch(0.65 0.18 155)' : 'oklch(0.55 0.02 260)'
+                  const color = item.significant ? 'oklch(0.65 0.18 155)' : 'oklch(0.50 0.06 45)'
                   const y = 24 + i * 26
                   return (
                     <g key={`perm-${item.cid}`}>
