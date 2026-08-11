@@ -672,8 +672,7 @@ def compute_optimal_clustering(sequences: list, method: str = 'auto', max_cluste
                                 do_permutation_test: bool = False, n_permutations: int = 1000,
                                 selection_criterion: str = 'silhouette',
                                 read_counts: list = None,
-                                abundance_threshold: int = 0,
-                                scan_k: bool = True) -> dict:
+                                abundance_threshold: int = 0) -> dict:
     """
     Compute optimal clustering using k-mer features + ML algorithms.
     Enhanced with GMM, Spectral Clustering.
@@ -700,205 +699,16 @@ def compute_optimal_clustering(sequences: list, method: str = 'auto', max_cluste
     if feature_mode == 'hybrid' and structural_scores and len(structural_scores) == n:
         fm = 'hybrid'
 
-    # ── Strip primers to estimate variable region length for k-feasibility ──
-    _prefix_len, _suffix_len = detect_primers(sequences)
-    _var_lens = []
-    for seq in sequences:
-        end = len(seq) - _suffix_len if _suffix_len > 0 else len(seq)
-        start = min(_prefix_len, len(seq))
-        end = max(start, end)
-        _var_lens.append(end - start)
-    _avg_var_len = sum(_var_lens) / max(len(_var_lens), 1)
+    # Fixed k=4 k-mer encoding
+    X, k, avg_len, prefix_len, suffix_len = prepare_features(
+        sequences, forward_primer, reverse_primer,
+        structural_scores=structural_scores, feature_mode=fm,
+        k_override=4
+    )
+    dist_matrix = cosine_distances(X)
+    print(f'[OptimalCluster] n={n}, k=4, features={X.shape[1]}, mode={fm}, criterion={selection_criterion}', flush=True)
 
-    # Determine k candidates based on variable region length
-    if scan_k:
-        k_candidates = [kc for kc in [2, 3, 4] if kc <= _avg_var_len - 1]
-        if not k_candidates:
-            k_candidates = [2]  # fallback: smallest k
-    else:
-        k_candidates = [None]
-
-    # ── k-scanning: for each k, run FULL 4-algorithm pipeline ──
-    # Store per-k results: (k, X, dist_matrix, best_labels, best_method, best_K, best_score, algo_results, avg_len, prefix_len, suffix_len)
-    k_results = []
-
-    for k_try in k_candidates:
-        X_k, k_used, avg_len_k, prefix_len_k, suffix_len_k = prepare_features(
-            sequences, forward_primer, reverse_primer,
-            structural_scores=structural_scores, feature_mode=fm,
-            k_override=k_try
-        )
-        dist_k = cosine_distances(X_k)
-
-        # ── Two-stage: run only for winning k (deferred) — use full data per k ──
-        n_k = len(X_k)
-
-        # Scoring helper per k
-        def _make_eval(dist_m, X_m):
-            def _eval(labels_arr):
-                if len(set(labels_arr)) < 2:
-                    return -float('inf')
-                if selection_criterion == 'davies_bouldin':
-                    try:
-                        return -davies_bouldin_score(X_m, labels_arr)
-                    except Exception:
-                        return -float('inf')
-                elif selection_criterion == 'calinski_harabasz':
-                    try:
-                        return calinski_harabasz_score(X_m, labels_arr)
-                    except Exception:
-                        return -float('inf')
-                else:
-                    return silhouette_score(dist_m, labels_arr, metric='precomputed')
-            return _eval
-
-        _eval_score_k = _make_eval(dist_k, X_k)
-
-        # Per-k algorithm results
-        algo_results_k = []
-        methods_to_try_k = methods_to_try if 'methods_to_try' in dir() else (
-            ['hierarchical', 'kmeans', 'gmm', 'spectral'] if method == 'auto' else [method]
-        )
-        # Pre-compute methods_to_try for first iteration; reuse for subsequent k
-        if k_try == k_candidates[0]:
-            methods_to_try = methods_to_try_k
-
-        max_k_val = min(max_clusters, n_k // 5, 50)
-        max_k_val = max(max_k_val, min_clusters, 2)
-        all_ks_k = [2, 3, 4, 5, 7, 10, 15, 20]
-        coarse_ks_k = sorted(set([ck for ck in all_ks_k if min_clusters <= ck <= max_k_val]))
-        if not coarse_ks_k:
-            coarse_ks_k = [min_clusters]
-        if max_k_val not in coarse_ks_k:
-            coarse_ks_k.append(max_k_val)
-
-        best_labels_k = None
-        best_score_k = -float('inf')
-        best_method_k = ''
-        best_K_k = 0
-
-        def try_clustering_k(labels_arr, method_name, num_k):
-            nonlocal best_labels_k, best_score_k, best_method_k, best_K_k
-            score = _eval_score_k(labels_arr)
-            if score > -float('inf'):
-                algo_results_k.append({'method': method_name, 'K': num_k, 'silhouette': float(score)})
-            if score > best_score_k:
-                best_score_k = score
-                best_labels_k = labels_arr.copy()
-                best_method_k = method_name
-                best_K_k = num_k
-
-        # ── Run all 4 algorithms for this k ──
-        for m in methods_to_try_k:
-            try:
-                if m == 'hierarchical':
-                    coarse_best_kk = 2
-                    coarse_best_score_k = -float('inf')
-                    for num_kk in coarse_ks_k:
-                        agg = AgglomerativeClustering(n_clusters=num_kk, metric='precomputed', linkage='average')
-                        labels = agg.fit_predict(dist_k)
-                        if len(set(labels)) < 2:
-                            continue
-                        s = _eval_score_k(labels)
-                        if s > -float('inf'):
-                            algo_results_k.append({'method': 'hierarchical', 'K': num_kk, 'silhouette': float(s)})
-                        if s > coarse_best_score_k:
-                            coarse_best_score_k = s
-                            coarse_best_kk = num_kk
-                        if s > best_score_k:
-                            best_score_k = s; best_labels_k = labels.copy(); best_method_k = 'hierarchical'; best_K_k = num_kk
-                    # Fine scan +-2
-                    for num_kk in range(max(2, coarse_best_kk - 2), min(max_k_val + 1, coarse_best_kk + 3)):
-                        if num_kk in coarse_ks_k:
-                            continue
-                        agg = AgglomerativeClustering(n_clusters=num_kk, metric='precomputed', linkage='average')
-                        labels = agg.fit_predict(dist_k)
-                        try_clustering_k(labels, 'hierarchical', num_kk)
-                    # Ward robustness
-                    for num_kk in coarse_ks_k:
-                        try:
-                            agg = AgglomerativeClustering(n_clusters=num_kk, linkage='ward')
-                            labels = agg.fit_predict(X_k)
-                            if len(set(labels)) >= 2:
-                                try_clustering_k(labels, 'hierarchical_ward', num_kk)
-                        except Exception:
-                            pass
-                elif m == 'kmeans':
-                    coarse_best_kk = 2
-                    for num_kk in coarse_ks_k:
-                        km = KMeans(n_clusters=num_kk, random_state=42, n_init=5, max_iter=150)
-                        labels = km.fit_predict(X_k)
-                        if len(set(labels)) < 2:
-                            continue
-                        s = _eval_score_k(labels)
-                        if s > -float('inf'):
-                            algo_results_k.append({'method': 'kmeans', 'K': num_kk, 'silhouette': float(s)})
-                        if s > best_score_k:
-                            best_score_k = s; best_labels_k = labels.copy(); best_method_k = 'kmeans'; best_K_k = num_kk
-                            coarse_best_kk = num_kk
-                    for num_kk in range(max(2, coarse_best_kk - 2), min(max_k_val + 1, coarse_best_kk + 3)):
-                        if num_kk in coarse_ks_k:
-                            continue
-                        km = KMeans(n_clusters=num_kk, random_state=42, n_init=5, max_iter=150)
-                        labels = km.fit_predict(X_k)
-                        try_clustering_k(labels, 'kmeans', num_kk)
-                elif m == 'gmm':
-                    for num_kk in coarse_ks_k:
-                        try:
-                            gmm = GaussianMixture(n_components=num_kk, covariance_type='full', random_state=42, max_iter=100, n_init=2)
-                            labels = gmm.fit_predict(X_k)
-                            if len(set(labels)) < 2:
-                                continue
-                            s = _eval_score_k(labels)
-                            if s > -float('inf'):
-                                algo_results_k.append({'method': 'gmm', 'K': num_kk, 'silhouette': float(s)})
-                            if s > best_score_k:
-                                best_score_k = s; best_labels_k = labels.copy(); best_method_k = 'gmm'; best_K_k = num_kk
-                                coarse_best_kk = num_kk
-                        except Exception:
-                            continue
-                elif m == 'spectral':
-                    flat_d = dist_k[dist_k > 0] if np.any(dist_k > 0) else np.array([1.0])
-                    sigma = float(np.median(flat_d)) if len(flat_d) > 0 else 1.0
-                    sigma = max(sigma, 0.01)
-                    aff_k = np.exp(-dist_k ** 2 / (2 * sigma ** 2))
-                    np.fill_diagonal(aff_k, 1)
-                    for num_kk in coarse_ks_k:
-                        try:
-                            spec = SpectralClustering(n_clusters=num_kk, affinity='precomputed', random_state=42, n_init=3, assign_labels='kmeans')
-                            labels = spec.fit_predict(aff_k)
-                            try_clustering_k(labels, 'spectral', num_kk)
-                        except Exception:
-                            continue
-            except Exception as e:
-                print(f'[OptimalCluster] k={k_try} method {m} failed: {e}', flush=True)
-                continue
-
-        k_results.append({
-            'k': k_used, 'X': X_k, 'dist_matrix': dist_k,
-            'best_labels': best_labels_k, 'best_method': best_method_k,
-            'best_K': best_K_k, 'best_score': best_score_k,
-            'algo_results': algo_results_k,
-            'avg_len': avg_len_k, 'prefix_len': prefix_len_k, 'suffix_len': suffix_len_k,
-        })
-        print(f'[OptimalCluster] k={k_used}: best={best_method_k}, K={best_K_k}, silhouette={best_score_k:.4f}, features={X_k.shape[1]}', flush=True)
-
-    # ── Select overall winner across all k ──
-    winner = max(k_results, key=lambda r: r['best_score'])
-    X = winner['X']
-    k = winner['k']
-    dist_matrix = winner['dist_matrix']
-    best_labels = winner['best_labels']
-    best_method = winner['best_method']
-    best_K = winner['best_K']
-    best_score = winner['best_score']
-    algo_results = winner['algo_results']
-    avg_len = winner['avg_len']
-    prefix_len = winner['prefix_len']
-    suffix_len = winner['suffix_len']
-    print(f'[OptimalCluster] k-scan winner: k={k}, method={best_method}, K={best_K}, silhouette={best_score:.4f}', flush=True)
-
-    # ── Two-stage clustering (deferred: run only for winning k on FULL data) ──
+    # ── Two-stage clustering ──
     low_indices = []
     high_indices = list(range(n))
     X_full = X
@@ -926,7 +736,54 @@ def compute_optimal_clustering(sequences: list, method: str = 'auto', max_cluste
             print(f'[OptimalCluster] Too few high-abundance ({n_high}), falling back to full clustering', flush=True)
             abundance_threshold = 0
 
-    best_k = best_K  # from k-scan winner
+    # Scoring helper
+    def _eval_score(labels_arr):
+        if len(set(labels_arr)) < 2:
+            return -float('inf')
+        if selection_criterion == 'davies_bouldin':
+            try:
+                db = davies_bouldin_score(X, labels_arr)
+                return -db
+            except Exception:
+                return -float('inf')
+        elif selection_criterion == 'calinski_harabasz':
+            try:
+                return calinski_harabasz_score(X, labels_arr)
+            except Exception:
+                return -float('inf')
+        else:
+            return silhouette_score(dist_matrix, labels_arr, metric='precomputed')
+
+    algo_results = []
+
+    methods_to_try = ['hierarchical', 'kmeans', 'gmm', 'spectral'] if method == 'auto' else [method]
+
+    max_k = min(max_clusters, n // 5, 50)
+    max_k = max(max_k, min_clusters, 2)
+
+    all_ks = [2, 3, 4, 5, 7, 10, 15, 20]
+    coarse_ks = sorted(set([ck for ck in all_ks if min_clusters <= ck <= max_k]))
+    if not coarse_ks:
+        coarse_ks = [min_clusters]
+    if max_k not in coarse_ks:
+        coarse_ks.append(max_k)
+
+    best_labels = None
+    best_score = -float('inf')
+    best_method = ''
+    best_k = 0
+
+    def try_clustering(labels_arr, method_name, num_k):
+        nonlocal best_labels, best_score, best_method, best_k
+        score = _eval_score(labels_arr)
+        if score > -float('inf'):
+            algo_results.append({'method': method_name, 'K': num_k, 'silhouette': float(score)})
+        if score > best_score:
+            best_score = score
+            best_labels = labels_arr.copy()
+            best_method = method_name
+            best_k = num_k
+
 
     # Convert to 1-based cluster IDs, sorted by cluster size (largest first)
     from collections import Counter as Ctr

@@ -499,7 +499,7 @@ analysisRouter.post('/distance_matrix', async (req: Request, res: Response) => {
 
 // Optimal clustering (ML-based: auto-selects best algorithm and K)
 analysisRouter.post('/optimal_cluster', async (req: Request, res: Response) => {
-  const { sequences, method, maxClusters, minClusters, forwardPrimer, reversePrimer, structuralScores, featureMode, doPermutationTest, nPermutations, selectionCriterion, readCounts, abundanceThreshold, scanK } = req.body
+  const { sequences, method, maxClusters, minClusters, forwardPrimer, reversePrimer, structuralScores, featureMode, doPermutationTest, nPermutations, selectionCriterion, readCounts, abundanceThreshold } = req.body
 
   if (!sequences || !Array.isArray(sequences) || sequences.length < 3) {
     res.status(400).json({ success: false, message: 'At least 3 sequences required' })
@@ -520,7 +520,6 @@ analysisRouter.post('/optimal_cluster', async (req: Request, res: Response) => {
         featureMode: featureMode || 'auto',
         doPermutationTest: doPermutationTest || false,
         nPermutations: nPermutations || 1000,
-        ...(typeof scanK === 'boolean' ? { scanK } : {}),
         ...(selectionCriterion ? { selectionCriterion } : {}),
         ...(readCounts ? { readCounts } : {}),
         ...(abundanceThreshold ? { abundanceThreshold } : {}),

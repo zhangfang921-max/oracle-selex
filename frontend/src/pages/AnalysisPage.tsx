@@ -288,7 +288,6 @@ export default function AnalysisPage() {
             featureMode: 'auto',
             doPermutationTest: true,
             nPermutations: 1000,
-            scanK: true,
             selectionCriterion,
             readCounts,
             ...(abundanceThreshold > 0 ? { abundanceThreshold } : {}),
