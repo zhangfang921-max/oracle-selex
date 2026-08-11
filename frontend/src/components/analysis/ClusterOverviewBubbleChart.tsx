@@ -144,7 +144,7 @@ export function ClusterOverviewBubbleChart({ data, clusterMeta, compact }: Clust
         </ScatterChart>
       </ResponsiveContainer>
       {/* Legend — HTML floating overlay */}
-      <div data-legend="panel-a-results" style={{ position: 'absolute', top: 8, left: 220, display: 'flex', flexWrap: 'wrap', gap: 8, background: 'rgba(255,255,255,0.12)', borderRadius: 6, padding: '4px 8px', pointerEvents: 'none' }}>
+      <div data-legend="panel-a-results" style={{ position: 'absolute', top: 8, left: 250, display: 'flex', flexWrap: 'wrap', gap: 8, background: 'rgba(255,255,255,0.12)', borderRadius: 6, padding: '4px 8px', pointerEvents: 'none' }}>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 14, fontWeight: 600, color: '#1a1a1a' }}>
           <span style={{ width: 8, height: 8, borderRadius: '50%', background: G4_RISK_COLORS.High, display: 'inline-block' }} />High G4
         </span>

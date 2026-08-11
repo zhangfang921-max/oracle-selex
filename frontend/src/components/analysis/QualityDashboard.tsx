@@ -376,7 +376,9 @@ function PermNullBoxPanel({ permutation, maxClusters }: { permutation: Permutati
             const st = boxStats(nd[i])
             const cx = offX + slotW * i + slotW / 2
             const sig = sigs[i]
-            const fillOp = sig ? 0.18 : 0.06
+            const fillOp = sig ? 0.18 : 0.10
+            const boxColorNS = sig ? boxColor : 'oklch(0.55 0.03 25)'  // non-significant: warm gray
+            const useColor = sig ? boxColor : boxColorNS
             const y0 = yScale(st.max); const y1 = yScale(st.q3)
             const yMed = yScale(st.median); const yq1 = yScale(st.q1); const yMinP = yScale(st.min)
             const obsY = yScale(obs[i])
@@ -393,17 +395,17 @@ function PermNullBoxPanel({ permutation, maxClusters }: { permutation: Permutati
             return (
               <g key={`n-${i}`}>
                 {scatterDots.map((dot, di) => (
-                  <circle key={`sd-${di}`} cx={dot.x} cy={dot.y} r={1.2} fill={boxColor} opacity={0.12} />
+                  <circle key={`sd-${di}`} cx={dot.x} cy={dot.y} r={1.2} fill={useColor} opacity={0.12} />
                 ))}
                 {/* Whiskers — unified strokeWidth */}
-                <line x1={cx} y1={y0} x2={cx} y2={y1} stroke={boxColor} strokeWidth={1} opacity={sig ? 0.5 : 0.25} />
-                <line x1={cx} y1={yq1} x2={cx} y2={yMinP} stroke={boxColor} strokeWidth={1} opacity={sig ? 0.5 : 0.25} />
+                <line x1={cx} y1={y0} x2={cx} y2={y1} stroke={useColor} strokeWidth={1} opacity={sig ? 0.5 : 0.35} />
+                <line x1={cx} y1={yq1} x2={cx} y2={yMinP} stroke={useColor} strokeWidth={1} opacity={sig ? 0.5 : 0.35} />
                 {/* Box — unified strokeWidth */}
                 <rect x={cx - boxW / 2} y={y1} width={boxW} height={Math.max(1.5, yq1 - y1)}
-                  fill={boxColor} fillOpacity={fillOp} stroke={boxColor} strokeWidth={1} rx={1} />
+                  fill={useColor} fillOpacity={fillOp} stroke={useColor} strokeWidth={1} rx={1} />
                 {/* Median */}
                 <line x1={cx - boxW / 2} y1={yMed} x2={cx + boxW / 2} y2={yMed}
-                  stroke={boxColor} strokeWidth={1.2} opacity={sig ? 1 : 0.5} />
+                  stroke={useColor} strokeWidth={1.2} opacity={sig ? 1 : 0.5} />
                 {/* Observed marker */}
                 <line x1={cx - boxW * 0.55} y1={obsY} x2={cx + boxW * 0.55} y2={obsY}
                   stroke={sig ? '#dc2626' : '#9ca3af'} strokeWidth={2.2} />

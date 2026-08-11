@@ -306,7 +306,7 @@ export function TSNEChart({ data, maxVisibleClusters: externalMaxClusters, featu
               <div data-legend="panel-a" style={{
                 position: 'absolute',
                 top: 16,
-                left: 430,
+                left: 450,
                 background: 'rgba(255,255,255,0.12)',
                 borderRadius: 6,
                 padding: '6px 10px',
