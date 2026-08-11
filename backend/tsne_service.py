@@ -378,7 +378,7 @@ def compute_tsne(sequences: list, cluster_ids: list, perplexity: int = None, fea
             learning_rate='auto',
             init='pca' if n >= 3 else 'random',
             random_state=42,
-            n_iter=1500,
+            max_iter=1500,
             metric=metric,
         )
         embedding = tsne.fit_transform(X)
@@ -391,7 +391,7 @@ def compute_tsne(sequences: list, cluster_ids: list, perplexity: int = None, fea
             learning_rate='auto',
             init='pca' if n >= 3 else 'random',
             random_state=42,
-            n_iter=1500,
+            max_iter=1500,
             metric='euclidean',
         )
         embedding = tsne.fit_transform(X)
