@@ -89,7 +89,7 @@ export function ClusterOverviewBubbleChart({ data, clusterMeta, compact }: Clust
     <>
       <div style={{ width: 650, maxWidth: '100%', aspectRatio: '3/2', position: 'relative', margin: '0 auto' }}><ResponsiveContainer width="100%" height="100%">
         <ScatterChart margin={ChartLayout.bubble.margin}>
-                    <XAxis type="number" dataKey="x" name="Cluster Size" domain={[0, 70]} ticks={[0,10,20,30,40,50,60,70]} tick={{ fontSize: 14, fill: AXIS_BLACK, fontFamily: 'system-ui, sans-serif', fontWeight: 600 }} stroke={AXIS_BLACK} strokeWidth={1} tickLine={{ stroke: AXIS_BLACK }}>
+                    <XAxis type="number" dataKey="x" name="Cluster Size" domain={[0, 160]} ticks={[0,20,40,60,80,100,120,140,160]} tick={{ fontSize: 14, fill: AXIS_BLACK, fontFamily: 'system-ui, sans-serif', fontWeight: 600 }} stroke={AXIS_BLACK} strokeWidth={1} tickLine={{ stroke: AXIS_BLACK }}>
             <Label value="Cluster Size (members)" position="insideBottom" offset={-10} style={{ fontSize: 16, fontWeight: 600, fill: AXIS_BLACK, fontFamily: 'system-ui, sans-serif' }} />
           </XAxis>
           <YAxis type="number" dataKey="y" name="Enrichment" domain={[0, 0.06]} ticks={[0, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06]} tick={{ fontSize: 14, fill: AXIS_BLACK, fontFamily: 'system-ui, sans-serif', fontWeight: 600 }} stroke={AXIS_BLACK} strokeWidth={1} tickLine={{ stroke: AXIS_BLACK }}>
