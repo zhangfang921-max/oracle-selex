@@ -44,18 +44,14 @@ const AXIS_BLACK = '#000'
 export function ClusterOverviewBubbleChart({ data, clusterMeta, compact }: ClusterOverviewBubbleChartProps) {
   const panelRef = useRef<HTMLDivElement>(null)
 
-  // Sort by enrichment Z-score descending, matching ClusterPanel ordering
+  // Sort by total read count descending, matching ClusterPanel ordering
   const sortedData = useMemo(() => {
-    const scores = clusterMeta?.abundance?.enrichment_scores
-    if (scores && scores.length > 0) {
-      return [...data].sort((a, b) => {
-        const za = scores[a.id - 1] ?? -Infinity
-        const zb = scores[b.id - 1] ?? -Infinity
-        return zb - za
-      })
-    }
-    return data
-  }, [data, clusterMeta])
+    return [...data].sort((a, b) => {
+      const ra = a.members.reduce((s, m) => s + (m.totalReads || 0), 0)
+      const rb = b.members.reduce((s, m) => s + (m.totalReads || 0), 0)
+      return rb - ra
+    })
+  }, [data])
 
   const chartData = useMemo(() => {
     return sortedData.map((c, i) => ({

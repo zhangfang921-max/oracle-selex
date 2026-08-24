@@ -294,7 +294,7 @@ Z > 0 = enriched (more reads than expected by chance).
 Z < 0 = depleted (fewer reads than expected by chance).
 |Z| > 2 ≈ p < 0.05, |Z| > 3 ≈ p < 0.003.
 
-Clusters are sorted by Z-score descending — the most significantly enriched clusters appear first.`}
+Clusters are sorted by total read count descending — the most abundant clusters appear first.`}
                     >
                       <TrendingUp size={12} />
                       Z={enrichmentScore.toFixed(1)}
@@ -939,14 +939,12 @@ export function ClusterPanel({
     return true
   })
 
-  // Sort by enrichment Z-score descending when abundance data is available
-  const sorted = clusterMeta?.abundance?.enrichment_scores
-    ? [...filtered].sort((a, b) => {
-        const za = clusterMeta.abundance!.enrichment_scores[a.id - 1] ?? -Infinity
-        const zb = clusterMeta.abundance!.enrichment_scores[b.id - 1] ?? -Infinity
-        return zb - za
-      })
-    : filtered
+  // Sort by total read count descending (sum of member read counts)
+  const sorted = [...filtered].sort((a, b) => {
+    const ra = a.members.reduce((s, m) => s + (m.totalReads || 0), 0)
+    const rb = b.members.reduce((s, m) => s + (m.totalReads || 0), 0)
+    return rb - ra
+  })
 
   return (
     <div>
@@ -967,7 +965,7 @@ export function ClusterPanel({
                 Results
               </h2>
               <p className="text-muted-foreground" style={{ fontSize: 'var(--font-size-label)', marginTop: 4 }}>
-                Clusters sorted by Z-score (enrichment significance). Hover over Z values for explanation.
+                Clusters sorted by total read count (descending). Hover over Z values for explanation.
               </p>
             </div>
             <div className="flex items-center" style={{ gap: 6 }}>
