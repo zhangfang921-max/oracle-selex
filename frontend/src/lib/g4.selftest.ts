@@ -41,4 +41,9 @@ check('单条未评分判定', g4Unscored(unscored), true)
 check('部分缺失不算未评分', g4Unscored(partial), false)
 
 console.log(failed === 0 ? '\n全部通过' : `\n${failed} 项失败`)
-process.exit(failed === 0 ? 0 : 1)
+// Throwing (rather than process.exit) still yields a non-zero exit code under
+// node/tsx, but keeps this file free of Node type dependencies so it stays
+// inside the frontend's type-check scope.
+if (failed > 0) {
+  throw new Error(`${failed} 项 G4 空值处理自测失败`)
+}

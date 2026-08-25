@@ -1,6 +1,7 @@
 import { FlaskConical, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { FadeIn, Stagger } from '@/components/MotionPrimitives'
+import { fmtScore } from '@/lib/g4'
 import type { G4Result } from '@/types/analysis'
 
 interface G4ResultsProps {
@@ -58,13 +59,17 @@ export function G4Results({ data, isLoading, selectedCount = 0, onRunG4 }: G4Res
     )
   }
 
-  const getScoreColor = (score: number) => {
+  // A missing score is styled neutrally and labelled 'n/a'. It must not fall
+  // through to the "Low" bucket, which would read as a measured low risk.
+  const getScoreColor = (score: number | null) => {
+    if (score == null) return 'bg-muted text-muted-foreground'
     if (score >= 1.0) return 'bg-success text-success-foreground'
     if (score >= 0.5) return 'bg-warning text-warning-foreground'
     return 'bg-muted text-muted-foreground'
   }
 
-  const getScoreLabel = (score: number) => {
+  const getScoreLabel = (score: number | null) => {
+    if (score == null) return 'n/a'
     if (score >= 1.0) return 'High'
     if (score >= 0.5) return 'Medium'
     return 'Low'
@@ -98,9 +103,13 @@ export function G4Results({ data, isLoading, selectedCount = 0, onRunG4 }: G4Res
     return <>{parts}</>
   }
 
-  const highCount = data.filter((r) => r.g4Score >= 1.0).length
-  const medCount = data.filter((r) => r.g4Score >= 0.5 && r.g4Score < 1.0).length
-  const lowCount = data.filter((r) => r.g4Score < 0.5).length
+  // Sequences whose score is absent are counted separately rather than being
+  // folded into "Low", so the summary bar can never overstate what was measured.
+  const scored = data.filter((r): r is G4Result & { g4Score: number } => r.g4Score != null)
+  const highCount = scored.filter((r) => r.g4Score >= 1.0).length
+  const medCount = scored.filter((r) => r.g4Score >= 0.5 && r.g4Score < 1.0).length
+  const lowCount = scored.filter((r) => r.g4Score < 0.5).length
+  const unscoredCount = data.length - scored.length
 
   return (
     <div>
@@ -110,7 +119,11 @@ export function G4Results({ data, isLoading, selectedCount = 0, onRunG4 }: G4Res
           className="flex items-center flex-wrap rounded-xl bg-card border border-border shadow-sm"
           style={{ padding: 'var(--spacing-sm) var(--spacing-md)', marginBottom: 'var(--spacing-md)', gap: 'var(--spacing-md)' }}
         >
-          <span className="text-sm font-semibold">{data.length} sequences screened</span>
+          <span className="text-sm font-semibold">
+            {unscoredCount === data.length
+              ? `${data.length} sequences — scoring unavailable`
+              : `${data.length} sequences screened`}
+          </span>
           <div className="flex items-center" style={{ gap: 'var(--spacing-sm)' }}>
             <span className="text-xs rounded-full bg-success/15 text-success font-semibold px-2 py-0.5">
               {highCount} High
@@ -121,6 +134,11 @@ export function G4Results({ data, isLoading, selectedCount = 0, onRunG4 }: G4Res
             <span className="text-xs rounded-full bg-muted text-muted-foreground font-semibold px-2 py-0.5">
               {lowCount} Low
             </span>
+            {unscoredCount > 0 && (
+              <span className="text-xs rounded-full bg-destructive/10 text-destructive font-semibold px-2 py-0.5">
+                {unscoredCount} not scored
+              </span>
+            )}
           </div>
         </div>
       </FadeIn>
@@ -153,10 +171,10 @@ export function G4Results({ data, isLoading, selectedCount = 0, onRunG4 }: G4Res
                 style={{ gap: 'var(--spacing-md)', marginTop: 'var(--spacing-sm)' }}
               >
                 <span>
-                  <strong>G4 Score:</strong> {result.g4Score.toFixed(3)}
+                  <strong>G4 Score:</strong> {fmtScore(result.g4Score)}
                 </span>
                 <span>
-                  <strong>cGcC:</strong> {result.cGcC.toFixed(3)}
+                  <strong>cGcC:</strong> {fmtScore(result.cGcC)}
                 </span>
                 <span>
                   <strong>G4 Motifs:</strong> {result.numG4Motifs}
