@@ -70,6 +70,10 @@ cd backend && pnpm build
 
 ORACLE is built on work by other groups. Please cite the underlying methods alongside ORACLE.
 
+ORACLE was developed at the Department of Food Science and Nutrition, The Hong Kong Polytechnic
+University, in collaboration with Prof. Chun Kit Kwok, Department of Chemistry, City University of
+Hong Kong. See the associated publication for author contributions.
+
 **RNA secondary structure** is computed with the **ViennaRNA Package** (RNAlib Python bindings),
 developed by R. Lorenz, S. H. Bernhart, C. Höner zu Siederdissen, H. Tafer, C. Flamm, P. F. Stadler
 and I. L. Hofacker at the **Institute for Theoretical Chemistry, University of Vienna**. We gratefully
