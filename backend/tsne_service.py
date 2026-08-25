@@ -37,7 +37,7 @@ def _ensure_dot_brackets(sequences: list) -> list:
         missing_seqs = [sequences[i] for i in missing_indices]
         try:
             req = urllib.request.Request(
-                'http://localhost:4001/fold',
+                FOLD_URL,
                 data=json.dumps({'sequences': missing_seqs, 'gquad': True}).encode(),
                 headers={'Content-Type': 'application/json'}
             )
@@ -48,7 +48,8 @@ def _ensure_dot_brackets(sequences: list) -> list:
                 db = fd.get('dotBracket', '.' * len(sequences[idx]))
                 _DOTBRACKET_CACHE[sequences[idx]] = db
                 dbs[idx] = db
-        except Exception:
+        except Exception as _e:
+            _mark_fold_degraded(_e, 'unpaired')
             # Fallback: all-dot
             for idx in missing_indices:
                 db = '.' * len(sequences[idx])
@@ -58,6 +59,42 @@ def _ensure_dot_brackets(sequences: list) -> list:
     return dbs
 
 PORT = 3003
+
+# -----------------------------------------------------------------------------
+# ViennaRNA (dot-bracket) availability tracking.
+# Every structure feature in this module comes from the rnafold microservice over
+# HTTP; this module never imports RNA itself. When that service is down, each
+# call site below silently substitutes degraded features (all-unpaired
+# dot-brackets, or k-mer features) and still returns plausible clusters and
+# silhouette scores. Track it and say so instead of failing quietly.
+# NOTE: port 4001 is NOT this repo's service -- it is ORACLE+'s rnafold_service.py.
+# Classic's own rnafold_service.py declares PORT = 3001 and is currently not
+# running, so Classic structure analysis depends on the ORACLE+ deployment.
+# -----------------------------------------------------------------------------
+FOLD_URL = 'http://localhost:4001/fold'
+_FOLD_STATE = {'degraded': False, 'reason': None, 'mode': None, 'at': None}
+
+
+def _reset_fold_state():
+    _FOLD_STATE.update({'degraded': False, 'reason': None, 'mode': None, 'at': None})
+
+
+def _mark_fold_degraded(exc, mode):
+    """Record a ViennaRNA fallback. mode: 'unpaired' | 'kmer' | 'error'."""
+    import time
+    _FOLD_STATE.update({'degraded': True, 'reason': str(exc)[:200], 'mode': mode,
+                        'at': time.strftime('%Y-%m-%d %H:%M:%S')})
+    print('[WARN] ViennaRNA unavailable at %s (%s) -- structure features degraded '
+          'to %s. Any clustering that follows is NOT structure-based.'
+          % (FOLD_URL, str(exc)[:120], mode), flush=True)
+
+
+def _attach_fold_status(result):
+    """Surface the degradation in the JSON response so the UI can show it."""
+    if isinstance(result, dict) and _FOLD_STATE['degraded']:
+        result['structureDegraded'] = dict(_FOLD_STATE)
+    return result
+
 
 
 def detect_primers(sequences: list, threshold: float = 0.9) -> tuple:
@@ -340,7 +377,7 @@ def compute_tsne(sequences: list, cluster_ids: list, perplexity: int = None, fea
             import urllib.request, json as j
             try:
                 req = urllib.request.Request(
-                    'http://localhost:4001/fold',
+                    FOLD_URL,
                     data=j.dumps({'sequences': sequences, 'gquad': True}).encode(),
                     headers={'Content-Type': 'application/json'}
                 )
@@ -352,7 +389,8 @@ def compute_tsne(sequences: list, cluster_ids: list, perplexity: int = None, fea
                 X = extract_profile_features(dbs)
                 k = 0
                 avg_len = 0
-            except Exception:
+            except Exception as _e:
+                _mark_fold_degraded(_e, 'error')
                 return {'success': False, 'message': 'Structure-profile features require dot-bracket data. Run RNA folding first.'}
     else:
         X, k, avg_len, _, _ = prepare_features(sequences)
@@ -560,7 +598,7 @@ def compute_silhouette(sequences: list, cluster_ids: list, feature_mode: str = '
             import urllib.request, json as j
             try:
                 req = urllib.request.Request(
-                    'http://localhost:4001/fold',
+                    FOLD_URL,
                     data=j.dumps({'sequences': sequences, 'gquad': True}).encode(),
                     headers={'Content-Type': 'application/json'}
                 )
@@ -570,7 +608,8 @@ def compute_silhouette(sequences: list, cluster_ids: list, feature_mode: str = '
                 dbs = [r.get('dotBracket', '.' * len(s)) for r, s in zip(fold_data, sequences)]
                 from profile_cluster import extract_profile_features
                 X = extract_profile_features(dbs)
-            except Exception:
+            except Exception as _e:
+                _mark_fold_degraded(_e, 'kmer')
                 X, k, avg_len, _, _ = prepare_features(sequences)
                 feature_mode = 'kmer'
         k = 0
@@ -976,6 +1015,7 @@ class AnalysisHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         content_length = int(self.headers.get('Content-Length', 0))
         body = self.rfile.read(content_length)
+        _reset_fold_state()
 
         handlers = {
             '/tsne': self.handle_tsne,
@@ -1000,7 +1040,7 @@ class AnalysisHandler(BaseHTTPRequestHandler):
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Access-Control-Allow-Origin', '*')
                 self.end_headers()
-                self.wfile.write(json.dumps(result).encode())
+                self.wfile.write(json.dumps(_attach_fold_status(result)).encode())
             except Exception as e:
                 import traceback
                 traceback.print_exc()
@@ -1020,7 +1060,7 @@ class AnalysisHandler(BaseHTTPRequestHandler):
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Access-Control-Allow-Origin', '*')
                 self.end_headers()
-                self.wfile.write(json.dumps(result).encode())
+                self.wfile.write(json.dumps(_attach_fold_status(result)).encode())
             except Exception as e:
                 import traceback
                 traceback.print_exc()
@@ -1046,7 +1086,7 @@ class AnalysisHandler(BaseHTTPRequestHandler):
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Access-Control-Allow-Origin', '*')
                 self.end_headers()
-                self.wfile.write(json.dumps(result).encode())
+                self.wfile.write(json.dumps(_attach_fold_status(result)).encode())
             except Exception as e:
                 import traceback
                 traceback.print_exc()
@@ -1124,7 +1164,7 @@ class AnalysisHandler(BaseHTTPRequestHandler):
         if not dot_brackets:
             import urllib.request
             req = urllib.request.Request(
-                'http://localhost:4001/fold',
+                FOLD_URL,
                 data=json.dumps({'sequences': sequences, 'gquad': True}).encode(),
                 headers={'Content-Type': 'application/json'}
             )
@@ -1132,7 +1172,8 @@ class AnalysisHandler(BaseHTTPRequestHandler):
                 resp = urllib.request.urlopen(req, timeout=5)
                 fold_result = json.loads(resp.read())
                 dot_brackets = [r.get('dotBracket', '.' * len(s)) for r, s in zip(fold_result.get('data', fold_result.get('results', [])), sequences)]
-            except Exception:
+            except Exception as _e:
+                _mark_fold_degraded(_e, 'unpaired')
                 # Fallback: all unpaired (fast path)
                 dot_brackets = ['.' * len(s) for s in sequences]
 
@@ -1283,7 +1324,7 @@ class AnalysisHandler(BaseHTTPRequestHandler):
                     import urllib.request
                     try:
                         req = urllib.request.Request(
-                            'http://localhost:4001/fold',
+                            FOLD_URL,
                             data=json.dumps({'sequences': sequences, 'gquad': True}).encode(),
                             headers={'Content-Type': 'application/json'}
                         )
@@ -1291,7 +1332,8 @@ class AnalysisHandler(BaseHTTPRequestHandler):
                         fold_result = json.loads(resp.read())
                         fold_data = fold_result.get('data', fold_result.get('results', []))
                         dbs = [r.get('dotBracket', '.' * len(s)) for r, s in zip(fold_data, sequences)]
-                    except Exception:
+                    except Exception as _e:
+                        _mark_fold_degraded(_e, 'unpaired')
                         dbs = ['.' * len(s) for s in sequences]
         
             X = extract_profile_features(dbs)
