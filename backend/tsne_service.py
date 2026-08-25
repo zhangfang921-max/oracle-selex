@@ -814,6 +814,28 @@ def compute_optimal_clustering(sequences: list, method: str = 'auto', max_cluste
     max_k = min(max_clusters, n // 5, 50)
     max_k = max(max_k, min_clusters, 2)
 
+    # --- Input-size guardrails -------------------------------------------
+    # Spectral clustering eigendecomposes an n x n affinity matrix: O(n^3) time
+    # and several copies of an n x n float64 array. Measured on this host:
+    # n=500 14.5s, n=1000 21.3s, n=2000 41.3s, and beyond ~3000 it dominates
+    # everything while no longer winning (kmeans already wins at n=2000).
+    # The permutation test costs n_perm x K compactness evaluations on top.
+    # Without these caps a topN of 5000 cannot finish inside Cloudflare's 100s
+    # origin timeout, and the request dies with a misleading error.
+    size_notes = []
+    if n > 1500 and 'spectral' in methods_to_try:
+        methods_to_try = [m for m in methods_to_try if m != 'spectral']
+        size_notes.append('spectral skipped (n=%d > 1500, O(n^3))' % n)
+    if n > 2500 and 'hierarchical' in methods_to_try:
+        # average-linkage on a precomputed matrix is O(n^2) memory; ward stays
+        methods_to_try = [m for m in methods_to_try if m != 'hierarchical']
+        size_notes.append('hierarchical(average) skipped (n=%d > 2500, O(n^2) memory)' % n)
+    if n > 2000 and do_permutation_test and n_permutations > 200:
+        n_permutations = 200
+        size_notes.append('permutations reduced to 200 (n=%d)' % n)
+    if size_notes:
+        print('[OptimalCluster] size guardrails: %s' % '; '.join(size_notes), flush=True)
+
     all_ks = [2, 3, 4, 5, 7, 10, 15, 20]
     coarse_ks = sorted(set([ck for ck in all_ks if min_clusters <= ck <= max_k]))
     if not coarse_ks:
