@@ -153,16 +153,23 @@ export function ClusterEvaluationFigure({
                 )}
                 {perClusterSilWithScore.map((item, i) => {
                   const barW = Math.max(4, (1 - item.pValue) * 500)
-                  const color = item.significant ? 'oklch(0.65 0.18 155)' : 'oklch(0.50 0.06 45)'
+                  const sigColor = 'oklch(0.65 0.18 155)'
+                  const insigColor = '#8b8b8b'
+                  const color = item.significant ? sigColor : insigColor
                   const y = 24 + i * 26
                   return (
                     <g key={`perm-${item.cid}`}>
                       <text x={8} y={y + 13} style={{ fontSize: 16, fill: '#1a1a1a', fontWeight: 600, fontFamily: 'system-ui, sans-serif' }}>
                         #{item.cid}
                       </text>
-                      <rect x={52} y={y} width={barW} height={20} rx={3} fill={color} fillOpacity={0.75} />
-                      <text x={Math.min(52 + barW, 560) + 6} y={y + 14}
-                        style={{ fontSize: 16, fill: color, fontWeight: item.significant ? 700 : 400 }}>
+                      <rect x={52} y={y} width={Math.max(barW, 8)} height={20} rx={3}
+                        fill={color}
+                        fillOpacity={item.significant ? 0.75 : 0.45}
+                        stroke={item.significant ? 'none' : '#8b8b8b'}
+                        strokeWidth={item.significant ? 0 : 0.5}
+                      />
+                      <text x={Math.min(52 + Math.max(barW, 12), 560) + 6} y={y + 14}
+                        style={{ fontSize: 16, fill: color, fontWeight: item.significant ? 700 : 500 }}>
                         p={item.pValue < 0.001 ? '<0.001' : item.pValue.toFixed(3)}
                       </text>
                     </g>
