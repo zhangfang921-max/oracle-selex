@@ -5,7 +5,9 @@ using k-mer frequency features on the VARIABLE REGION only.
 Enhanced with GMM, Spectral Clustering, and hybrid features.
 Runs on port 3003.
 """
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
+import threading
+import time as _time
 import json
 import sys
 import os
@@ -72,18 +74,29 @@ PORT = 3003
 # running, so Classic structure analysis depends on the ORACLE+ deployment.
 # -----------------------------------------------------------------------------
 FOLD_URL = 'http://localhost:4001/fold'
-_FOLD_STATE = {'degraded': False, 'reason': None, 'mode': None, 'at': None}
+
+# Per-request, not global: the server is threaded, so two concurrent requests
+# must not see each other's degradation state.
+_FOLD_TLS = threading.local()
+
+
+def _fold_state():
+    st = getattr(_FOLD_TLS, 'state', None)
+    if st is None:
+        st = {'degraded': False, 'reason': None, 'mode': None, 'at': None}
+        _FOLD_TLS.state = st
+    return st
 
 
 def _reset_fold_state():
-    _FOLD_STATE.update({'degraded': False, 'reason': None, 'mode': None, 'at': None})
+    _FOLD_TLS.state = {'degraded': False, 'reason': None, 'mode': None, 'at': None}
 
 
 def _mark_fold_degraded(exc, mode):
     """Record a ViennaRNA fallback. mode: 'unpaired' | 'kmer' | 'error'."""
     import time
-    _FOLD_STATE.update({'degraded': True, 'reason': str(exc)[:200], 'mode': mode,
-                        'at': time.strftime('%Y-%m-%d %H:%M:%S')})
+    _fold_state().update({'degraded': True, 'reason': str(exc)[:200], 'mode': mode,
+                          'at': time.strftime('%Y-%m-%d %H:%M:%S')})
     print('[WARN] ViennaRNA unavailable at %s (%s) -- structure features degraded '
           'to %s. Any clustering that follows is NOT structure-based.'
           % (FOLD_URL, str(exc)[:120], mode), flush=True)
@@ -91,8 +104,9 @@ def _mark_fold_degraded(exc, mode):
 
 def _attach_fold_status(result):
     """Surface the degradation in the JSON response so the UI can show it."""
-    if isinstance(result, dict) and _FOLD_STATE['degraded']:
-        result['structureDegraded'] = dict(_FOLD_STATE)
+    st = _fold_state()
+    if isinstance(result, dict) and st['degraded']:
+        result['structureDegraded'] = dict(st)
     return result
 
 
@@ -1016,6 +1030,8 @@ class AnalysisHandler(BaseHTTPRequestHandler):
         content_length = int(self.headers.get('Content-Length', 0))
         body = self.rfile.read(content_length)
         _reset_fold_state()
+        _req_t0 = _time.time()
+        print('[req ] %s start (%.1f KB)' % (self.path, content_length / 1024.0), flush=True)
 
         handlers = {
             '/tsne': self.handle_tsne,
@@ -1036,6 +1052,9 @@ class AnalysisHandler(BaseHTTPRequestHandler):
             try:
                 data = json.loads(body)
                 result = self.handle_enrich_analyze(data)
+                print('[req ] %s done in %.1fs (n=%s, K=%s, method=%s)'
+                      % (self.path, _time.time() - _req_t0, result.get('n'),
+                         result.get('numClusters'), result.get('method')), flush=True)
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Access-Control-Allow-Origin', '*')
@@ -1081,6 +1100,8 @@ class AnalysisHandler(BaseHTTPRequestHandler):
                     raise ValueError('Need at least 2 sequences')
 
                 result = handler(sequences, cluster_ids, data)
+                print('[req ] %s done in %.1fs (n=%d)'
+                      % (self.path, _time.time() - _req_t0, len(sequences)), flush=True)
 
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
@@ -1527,7 +1548,13 @@ class AnalysisHandler(BaseHTTPRequestHandler):
 
 
 if __name__ == '__main__':
-    server = HTTPServer(('0.0.0.0', PORT), AnalysisHandler)
+    # ThreadingHTTPServer, not HTTPServer: a single-threaded server keeps
+    # computing a request whose client already went away (page refresh, closed
+    # tab, node's 300s abort) and every other request queues behind it, so the
+    # site looks hung for minutes. One thread per request, daemon threads so
+    # Ctrl-C still exits.
+    server = ThreadingHTTPServer(('0.0.0.0', PORT), AnalysisHandler)
+    server.daemon_threads = True
     print(f'Cluster Analysis service running on port {PORT}', flush=True)
     print(f'Endpoints: /tsne, /umap, /pca, /silhouette, /distance_matrix, /optimal_cluster', flush=True)
     print(f'Methods: hierarchical, kmeans, gmm, spectral', flush=True)
