@@ -7,3 +7,7 @@ __pycache__/
 .env
 .DS_Store
 *.tsbuildinfo
+
+# GPL-3.0 G4NN model, installed separately (see scripts/fetch_g4nn_model.md)
+models/*.pkl
+g4rna_screener/

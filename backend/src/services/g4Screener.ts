@@ -1,10 +1,12 @@
 /**
- * G-Quadruplex (G4) Screener — calls the real G4RNA Screener Python service
+ * G-Quadruplex (G4) Screener — calls ORACLE's Python G4 scoring service
  *
  * The Python microservice (port 3002) uses:
- *   1. cGcC score — original algorithm by Jean-Michel Garant
- *   2. G4Hunter (G4H) — Bedrat, Mergny & Lacroix, 2016
- *   3. G4NN — pre-trained ANN model (Garant et al., 2017)
+ *   1. cGcC — Beaudoin, Jodoin & Perreault, 2014
+ *   2. G4Hunter (G4H) — Bedrat, Lacroix & Mergny, 2016
+ *   3. G4NN — optional; requires the externally installed pre-trained model
+ *      published with G4RNA screener (Garant et al., 2017, GPL-3.0). When the
+ *      model is not installed the service returns g4NN = null.
  *
  * Falls back to a lightweight TypeScript approximation if the Python
  * service is unavailable.
@@ -16,7 +18,7 @@ export interface G4Result {
   g4Score: number       // composite score (0-2)
   cGcC: number          // cGcC score
   g4Hunter: number      // G4Hunter score
-  g4NN: number          // G4NN score
+  g4NN: number | null   // G4NN score, null when the optional model is absent
   numG4Motifs: number
   g4Motifs: G4Motif[]
   gRichRegions: { start: number; end: number }[]
@@ -55,7 +57,7 @@ export async function scoreG4Batch(sequences: string[]): Promise<G4Result[]> {
         data: Array<{
           cGcC: number
           g4Hunter: number
-          g4NN: number
+          g4NN: number | null
           sequence: string
           length: number
         }>
@@ -77,21 +79,29 @@ export async function scoreG4Batch(sequences: string[]): Promise<G4Result[]> {
         // with a simple /10 divisor on the Python scorer's output scale.
         const cGcCNorm = 1 / (1 + Math.exp(-(item.cGcC - 4.5) / 2.5))
         const g4HNorm = Math.min(Math.abs(item.g4Hunter) / 2, 1)
-        const g4NNNorm = Math.min(Math.max(item.g4NN, 0), 1)
         const motifNorm = motifs.length > 0
           ? Math.min(motifs[0].score / 10, 1) : 0
-        const composite = (cGcCNorm * 0.2 + g4HNorm * 0.3 +
-          g4NNNorm * 0.3 + motifNorm * 0.2) * 2
+
+        // G4NN is optional. When it is unavailable its 0.3 weight is
+        // redistributed over the remaining terms so the composite stays on the
+        // same 0-2 scale instead of being silently depressed.
+        const hasNN = typeof item.g4NN === 'number' && Number.isFinite(item.g4NN)
+        const g4NNNorm = hasNN ? Math.min(Math.max(item.g4NN as number, 0), 1) : 0
+        const weighted = cGcCNorm * 0.2 + g4HNorm * 0.3 + motifNorm * 0.2 +
+          (hasNN ? g4NNNorm * 0.3 : 0)
+        const composite = (hasNN ? weighted : weighted / 0.7) * 2
 
         return {
           g4Score: Math.round(Math.min(composite, 2) * 1000) / 1000,
           cGcC: item.cGcC,
           g4Hunter: item.g4Hunter,
-          g4NN: item.g4NN,
+          g4NN: hasNN ? (item.g4NN as number) : null,
           numG4Motifs: motifs.length,
           g4Motifs: motifs,
           gRichRegions,
-          engine: 'G4RNA Screener (Original ANN)',
+          engine: hasNN
+            ? 'ORACLE G4 scorers + G4NN external model'
+            : 'ORACLE G4 scorers (cGcC, G4Hunter)',
         }
       })
     } catch (err: any) {

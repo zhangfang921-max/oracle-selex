@@ -49,11 +49,12 @@ function startRNAFoldService(): void {
 }
 
 /**
- * Start the G4RNA Screener microservice (Python) on port 3002.
- * Uses the original ANN model by Jean-Michel Garant.
+ * Start the G4 screening microservice (Python) on port 3002.
+ * Scores cGcC and G4Hunter; adds G4NN when the optional external model is
+ * installed (see scripts/fetch_g4nn_model.md).
  */
 function startG4ScreenerService(): void {
-  const scriptPath = path.resolve(__dirname, '..', 'g4screener_service.py')
+  const scriptPath = path.resolve(__dirname, '..', 'g4_service.py')
   g4screenerProcess = spawn('python3', [scriptPath], {
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: false,
