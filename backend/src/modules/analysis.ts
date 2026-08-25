@@ -344,10 +344,20 @@ analysisRouter.post('/cluster', async (req: Request, res: Response) => {
 
   const repsWithG4 = clusters.map((cluster, idx) => {
     const g4 = g4Results[idx] ?? scoreG4(cluster.representative)
-    // G4 Risk based on threshold pass count — matches G4RNA Screener
-    // published thresholds and ORACLE+ classification (cGcC>4.5, G4Hunter>0.9, G4NN>0.5)
-    const passCount = (g4.cGcC > 4.5 ? 1 : 0) + ((g4.g4Hunter ?? 0) > 0.9 ? 1 : 0) + ((g4.g4NN ?? 0) > 0.5 ? 1 : 0)
-    const g4Risk = passCount >= 2 ? 'High' as const : passCount >= 1 ? 'Medium' as const : 'Low' as const
+    // G4 risk from the published thresholds (cGcC > 4.5, G4Hunter > 0.9,
+    // G4NN > 0.5). Criteria whose score is null are not counted, and when no
+    // score at all is available the risk is 'n/a' rather than 'Low' — absent
+    // data must not be reported as low risk.
+    const criteria = [
+      g4.cGcC === null ? null : g4.cGcC > 4.5,
+      g4.g4Hunter === null ? null : g4.g4Hunter > 0.9,
+      g4.g4NN === null ? null : g4.g4NN > 0.5,
+    ]
+    const evaluated = criteria.filter((c): c is boolean => c !== null)
+    const passCount = evaluated.filter(Boolean).length
+    const g4Risk = evaluated.length === 0
+      ? 'n/a' as const
+      : passCount >= 2 ? 'High' as const : passCount >= 1 ? 'Medium' as const : 'Low' as const
     return {
       ...cluster,
       g4Score: g4.g4Score,

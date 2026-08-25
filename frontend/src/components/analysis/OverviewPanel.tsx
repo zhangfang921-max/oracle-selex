@@ -98,7 +98,7 @@ export function OverviewPanel({
   // Compute summary metrics for the academic overview
   const g4PositiveCount = safeClusters.filter((c) => {
     let pass = 0
-    if (c.cGcC > 4.5) pass++
+    if ((c.cGcC ?? 0) > 4.5) pass++
     if ((c.g4Hunter ?? 0) > 0.9) pass++
     if ((c.g4NN ?? 0) > 0.5) pass++
     return pass >= 2

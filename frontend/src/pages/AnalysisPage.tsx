@@ -21,6 +21,7 @@ import { ClusterEvaluationFigure } from '@/components/analysis/ClusterEvaluation
 import { ClusterEvaluationContent } from '@/components/analysis/ClusterEvaluationContent'
 import { ClusterNetworkGraph } from '@/components/analysis/ClusterNetworkGraph'
 import { Acknowledgements } from '@/components/Acknowledgements'
+import { allUnscored } from '@/lib/g4'
 import {
   useAnalysisDetail,
   useCluster,
@@ -560,6 +561,21 @@ export default function AnalysisPage() {
       <div className="container max-w-7xl" style={{ padding: 'var(--spacing-lg) var(--spacing-xl)' }}>
         {/* Workflow Steps */}
         <WorkflowSteps steps={workflowSteps} />
+
+        {/* G4 scoring unavailable: say so instead of showing zeros */}
+        {allUnscored(clusterData) && (
+          <div
+            className="rounded-lg border border-amber-500/40 bg-amber-500/10 text-sm"
+            style={{ padding: 'var(--spacing-md)', marginBottom: 'var(--spacing-md)' }}
+          >
+            <p className="font-semibold text-amber-700">G4 scoring unavailable</p>
+            <p className="text-muted-foreground" style={{ marginTop: 4 }}>
+              The G-quadruplex scoring service did not respond, so cGcC, G4Hunter and G4NN are
+              reported as “—” and G4 risk as “n/a” for every cluster. No substitute values have been
+              computed. Clustering, enrichment and RNA structure results are unaffected.
+            </p>
+          </div>
+        )}
 
         {/* ── Tabs — Glassmorphism pill navigation ── */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">

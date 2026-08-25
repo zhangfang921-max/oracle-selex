@@ -8,21 +8,26 @@
  *      published with G4RNA screener (Garant et al., 2017, GPL-3.0). When the
  *      model is not installed the service returns g4NN = null.
  *
- * Falls back to a lightweight TypeScript approximation if the Python
- * service is unavailable.
+ * If the Python service is unavailable, scores are reported as null rather
+ * than substituted with an approximation. Publishing a differently-computed
+ * number under the same field name would make results irreproducible and
+ * silently invalidate the published thresholds, so the degraded state is made
+ * explicit instead. Motif detection is pure pattern matching and stays
+ * available either way.
  */
 
 const G4_SERVICE_URL = 'http://localhost:3002'
 
 export interface G4Result {
-  g4Score: number       // composite score (0-2)
-  cGcC: number          // cGcC score
-  g4Hunter: number      // G4Hunter score
-  g4NN: number | null   // G4NN score, null when the optional model is absent
+  g4Score: number | null   // composite score (0-2), null when scoring unavailable
+  cGcC: number | null      // cGcC score, null when scoring unavailable
+  g4Hunter: number | null  // G4Hunter score, null when scoring unavailable
+  g4NN: number | null      // G4NN score, null when the optional model is absent
   numG4Motifs: number
   g4Motifs: G4Motif[]
   gRichRegions: { start: number; end: number }[]
   engine?: string
+  degraded?: boolean       // true when the scoring service was unreachable
 }
 
 export interface G4Motif {
@@ -126,14 +131,14 @@ export async function scoreG4Batch(sequences: string[]): Promise<G4Result[]> {
 
 /**
  * Screen a single sequence (convenience wrapper).
- * Synchronous fallback version for backward compatibility.
+ * Motif detection only; numeric scores require the Python service.
  */
 export function scoreG4(sequence: string): G4Result {
   return scoreG4Fallback(sequence)
 }
 
 // ---------------------------------------------------------------------------
-// TypeScript fallback (used only when Python service is unavailable)
+// Degraded path (used only when the Python scoring service is unavailable)
 // ---------------------------------------------------------------------------
 
 function scoreG4Fallback(sequence: string): G4Result {
@@ -141,21 +146,21 @@ function scoreG4Fallback(sequence: string): G4Result {
   const gSeq = seq.replace(/U/g, 'T')
 
   const g4Motifs = findG4Motifs(gSeq)
-  const cGcC = calculateCGcC(seq)
-  const g4Hunter = calculateG4Hunter(seq)
-  const g4NN = calculateG4NN(seq, g4Motifs)
-  const g4Score = calculateCompositeScore(cGcC, g4Hunter, g4NN, g4Motifs)
   const gRichRegions = findGRichRegions(seq)
 
   return {
-    g4Score: Math.round(g4Score * 1000) / 1000,
-    cGcC: Math.round(cGcC * 1000) / 1000,
-    g4Hunter: Math.round(g4Hunter * 1000) / 1000,
-    g4NN: Math.round(g4NN * 1000) / 1000,
+    // Deliberately null: cGcC, G4Hunter and G4NN are defined by their
+    // published algorithms. Any substitute computed here would be a different
+    // quantity reported under the same name, so nothing is reported at all.
+    g4Score: null,
+    cGcC: null,
+    g4Hunter: null,
+    g4NN: null,
     numG4Motifs: g4Motifs.length,
     g4Motifs,
     gRichRegions,
-    engine: 'TypeScript Approximation (Fallback)',
+    engine: 'unavailable (G4 scoring service offline)',
+    degraded: true,
   }
 }
 
@@ -190,88 +195,4 @@ function findGRichRegions(seq: string): { start: number; end: number }[] {
     regions.push({ start: match.index, end: match.index + match[0].length })
   }
   return regions
-}
-
-// Fallback scoring functions (TypeScript approximations)
-function calculateCGcC(seq: string): number {
-  const len = seq.length
-  if (len === 0) return 0
-  const gCount = (seq.match(/G/g) || []).length
-  const cCount = (seq.match(/C/g) || []).length
-  const gFrac = gCount / len
-  const diff = gCount - cCount
-  return diff * gFrac * (100 / len)
-}
-
-function calculateG4Hunter(seq: string): number {
-  const s = seq.replace(/U/g, 'T')
-  const n = s.length
-  if (n === 0) return 0
-  const scores = new Array(n).fill(0)
-  let i = 0
-  while (i < n) {
-    if (s[i] === 'G') {
-      let j = i
-      while (j < n && s[j] === 'G') j++
-      const runLen = Math.min(j - i, 4)
-      for (let k = i; k < j; k++) scores[k] = runLen
-      i = j
-    } else if (s[i] === 'C') {
-      let j = i
-      while (j < n && s[j] === 'C') j++
-      const runLen = Math.min(j - i, 4)
-      for (let k = i; k < j; k++) scores[k] = -runLen
-      i = j
-    } else { i++ }
-  }
-  const windowSize = Math.min(25, n)
-  let maxScore = 0
-  let windowSum = 0
-  for (let k = 0; k < windowSize; k++) windowSum += scores[k]
-  maxScore = Math.abs(windowSum / windowSize)
-  for (let start = 1; start <= n - windowSize; start++) {
-    windowSum -= scores[start - 1]
-    windowSum += scores[start + windowSize - 1]
-    const m = Math.abs(windowSum / windowSize)
-    if (m > maxScore) maxScore = m
-  }
-  return maxScore
-}
-
-function calculateG4NN(seq: string, motifs: G4Motif[]): number {
-  const s = seq.replace(/U/g, 'T')
-  const n = s.length
-  if (n === 0) return 0
-  const gCount = (s.match(/G/g) || []).length
-  const gContent = gCount / n
-  const motifPresence = Math.min(motifs.length / 3, 1)
-  const gTracts = s.match(/G+/g) || []
-  const maxGTract = gTracts.length > 0 ? Math.max(...gTracts.map((g) => g.length)) : 0
-  const gTractFeature = Math.min(maxGTract / 5, 1)
-  const qualifiedTracts = gTracts.filter((g) => g.length >= 2).length
-  const tractDensity = Math.min(qualifiedTracts / 4, 1)
-  let loopRegularity = 0
-  if (motifs.length > 0) {
-    const loops = motifs[0].motif.replace(/G+/g, '|').split('|').filter((l) => l.length > 0)
-    if (loops.length >= 3) {
-      const loopLens = loops.map((l) => l.length)
-      const meanLoop = loopLens.reduce((a, b) => a + b, 0) / loopLens.length
-      const variance = loopLens.reduce((s, l) => s + (l - meanLoop) ** 2, 0) / loopLens.length
-      loopRegularity = 1 / (1 + variance)
-      if (meanLoop <= 3) loopRegularity *= 1.2
-    }
-  }
-  const z = -2.5 + gContent * 6.0 + motifPresence * 3.0 +
-    gTractFeature * 2.5 + tractDensity * 2.0 + loopRegularity * 1.5
-  return Math.round((1 / (1 + Math.exp(-z))) * 1000) / 1000
-}
-
-function calculateCompositeScore(
-  cGcC: number, g4Hunter: number, g4NN: number, motifs: G4Motif[]
-): number {
-  const cGcCNorm = Math.min(Math.max(cGcC / 10, 0), 1)
-  const g4HNorm = Math.min(g4Hunter / 2, 1)
-  const g4NNNorm = g4NN
-  const motifNorm = Math.min(motifs.length > 0 ? motifs[0].score / 10 : 0, 1)
-  return Math.min((cGcCNorm * 0.2 + g4HNorm * 0.3 + g4NNNorm * 0.3 + motifNorm * 0.2) * 2, 2)
 }

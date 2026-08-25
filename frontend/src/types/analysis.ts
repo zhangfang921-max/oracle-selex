@@ -35,8 +35,8 @@ export interface EnrichmentEntry {
 
 export interface G4Result {
   sequence: string
-  g4Score: number
-  cGcC: number
+  g4Score: number | null
+  cGcC: number | null
   numG4Motifs: number
   g4Motifs: {
     start: number
@@ -104,12 +104,14 @@ export interface SequenceCluster {
   members: ClusterMember[]
   size: number
   avgMaxPercentRead: number
-  g4Score: number
-  g4Risk: 'High' | 'Medium' | 'Low'
+  // null when the G4 scoring service was unavailable; 'n/a' risk means
+  // "not evaluated", which is not the same as low risk
+  g4Score: number | null
+  g4Risk: 'High' | 'Medium' | 'Low' | 'n/a'
   numG4Motifs: number
-  cGcC: number
-  g4Hunter: number
-  g4NN: number
+  cGcC: number | null
+  g4Hunter: number | null
+  g4NN: number | null
   g4Motifs: G4MotifDetail[]
   gRichRegions: { start: number; end: number }[]
   rnaFold: ClusterRNAFold | null

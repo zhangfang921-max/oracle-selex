@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, Layers, Dna, Users, TrendingUp, ArrowRight, 
 import { Button } from '@/components/ui/button'
 import { FadeIn, Stagger } from '@/components/MotionPrimitives'
 import { ClusterCharts } from './ClusterCharts'
+import { g4PassCount as g4PassCountShared, g4EvaluatedCount, fmtScore } from '@/lib/g4'
 import type { SequenceCluster } from '@/types/analysis'
 
 /** Export cluster data as CSV */
@@ -31,10 +32,10 @@ function exportClusterCSV(data: SequenceCluster[]) {
     c.representative,
     c.size,
     c.avgMaxPercentRead?.toFixed(6) ?? '',
-    c.cGcC?.toFixed(4) ?? '',
-    (c.g4Hunter ?? 0).toFixed(4),
-    (c.g4NN ?? 0).toFixed(4),
-    c.g4Risk ?? '',
+    fmtScore(c.cGcC, 4, ''),
+    fmtScore(c.g4Hunter, 4, ''),
+    fmtScore(c.g4NN, 4, ''),
+    c.g4Risk ?? 'n/a',
     c.numG4Motifs ?? 0,
     c.rnaFold?.mfe ?? '',
     c.rnaFoldNoG4?.mfe ?? '',
@@ -80,8 +81,8 @@ function exportClusterJSON(data: SequenceCluster[], clusterMeta?: ClusterMeta | 
       g4Score: c.g4Score,
       g4Risk: c.g4Risk,
       cGcC: c.cGcC,
-      g4Hunter: c.g4Hunter ?? 0,
-      g4NN: c.g4NN ?? 0,
+      g4Hunter: c.g4Hunter,
+      g4NN: c.g4NN,
       numG4Motifs: c.numG4Motifs,
       g4Motifs: c.g4Motifs || [],
       gRichRegions: c.gRichRegions || [],
@@ -204,18 +205,14 @@ interface ClusterPanelProps {
 }
 
 /** Count how many G4RNA Screener scores pass their thresholds */
-function g4PassCount(cluster: SequenceCluster): number {
-  let count = 0
-  if (cluster.cGcC > 4.5) count++
-  if ((cluster.g4Hunter ?? 0) > 0.9) count++
-  if ((cluster.g4NN ?? 0) > 0.5) count++
-  return count
+function g4PassCount(cluster: SequenceCluster): number | null {
+  return g4PassCountShared(cluster)
 }
 
 function ClusterCard({ cluster, rank, enrichmentScore, enrichmentPvalue }: { cluster: SequenceCluster; rank: number; enrichmentScore?: number; enrichmentPvalue?: number }) {
   const [expanded, setExpanded] = useState(false)
 
-  const g4Risk = cluster.g4Risk ?? 'Low'
+  const g4Risk = cluster.g4Risk ?? 'n/a'
   const g4BadgeStyle = g4Risk === 'High'
     ? 'bg-emerald-500/12 text-emerald-600 border-emerald-500/30'
     : g4Risk === 'Medium'
@@ -319,7 +316,7 @@ Clusters are sorted by total read count descending — the most abundant cluster
                 style={{ padding: '4px 12px', gap: 5, fontSize: 'var(--font-size-small)' }}
               >
                 <FlaskConical size={12} />
-                G4 {cluster.g4Risk ?? 'Low'}
+                G4 {cluster.g4Risk ?? 'n/a'}
               </span>
               {expanded ? <ChevronDown size={18} className="text-muted-foreground" /> : <ChevronRight size={18} className="text-muted-foreground" />}
             </div>
@@ -442,7 +439,9 @@ function G4ScreenerPanel({ cluster }: { cluster: SequenceCluster }) {
         </p>
         <div className="flex items-center text-xs text-muted-foreground" style={{ gap: 6 }}>
           <span style={{ fontSize: 10 }}>
-            {g4PassCount(cluster)}/3 thresholds passed
+            {g4PassCount(cluster) === null
+              ? 'not evaluated (scoring unavailable)'
+              : `${g4PassCount(cluster)}/${g4EvaluatedCount(cluster)} thresholds passed`}
           </span>
         </div>
       </div>
@@ -460,21 +459,21 @@ function G4ScreenerPanel({ cluster }: { cluster: SequenceCluster }) {
             },
             {
               label: 'G4H',
-              value: cluster.g4Hunter ?? 0,
+              value: cluster.g4Hunter,
               threshold: 0.9,
               thresholdLabel: '> 0.9',
               description: 'G4Hunter',
             },
             {
               label: 'G4NN',
-              value: cluster.g4NN ?? 0,
+              value: cluster.g4NN,
               threshold: 0.5,
               thresholdLabel: '> 0.5',
               description: 'Neural net',
             },
           ]
           return scores.map((s) => {
-            const pass = s.value > s.threshold
+            const pass = s.value != null && s.value > s.threshold
             return (
               <div
                 key={s.label}
@@ -504,7 +503,7 @@ function G4ScreenerPanel({ cluster }: { cluster: SequenceCluster }) {
                   }`}
                   style={{ fontSize: 18, lineHeight: 1.2 }}
                 >
-                  {s.value.toFixed(3)}
+                  {fmtScore(s.value, 3)}
                 </p>
                 <div className="flex items-center justify-center" style={{ gap: 4, marginTop: 3 }}>
                   {pass ? (
@@ -737,7 +736,7 @@ function RNAFoldComparison({ cluster }: { cluster: SequenceCluster }) {
 function SummaryCards({ data }: { data: SequenceCluster[] }) {
   const totalSeqs = data.reduce((s, c) => s + c.size, 0)
   const multiClusters = data.filter((c) => c.size > 1).length
-  const g4Positive = data.filter((c) => g4PassCount(c) >= 2).length
+  const g4Positive = data.filter((c) => (g4PassCount(c) ?? 0) >= 2).length
   const stableRNA = data.filter((c) => c.rnaFold && c.rnaFold.mfe <= -5).length
 
   const cards = [
@@ -800,7 +799,7 @@ function CategoryFilters({
   const counts: Record<FilterCategory, number> = {
     all: data.length,
     multi: data.filter((c) => c.size > 1).length,
-    g4pos: data.filter((c) => g4PassCount(c) >= 2).length,
+    g4pos: data.filter((c) => (g4PassCount(c) ?? 0) >= 2).length,
     stable: data.filter((c) => c.rnaFold != null && c.rnaFold.mfe <= -5).length,
   }
 
@@ -904,7 +903,7 @@ export function ClusterPanel({
   // Apply filter
   const filtered = data.filter((c) => {
     if (filter === 'multi') return c.size > 1
-    if (filter === 'g4pos') return g4PassCount(c) >= 2
+    if (filter === 'g4pos') return (g4PassCount(c) ?? 0) >= 2
     if (filter === 'stable') return c.rnaFold != null && c.rnaFold.mfe <= -5
     return true
   })

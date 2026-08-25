@@ -57,15 +57,6 @@ function mfeColor(mfe: number): string {
   return `oklch(0.6 ${c.toFixed(3)} ${h.toFixed(0)})`
 }
 
-// G4 pass count
-function g4Pass(c: SequenceCluster): number {
-  let n = 0
-  if (c.cGcC > 4.5) n++
-  if ((c.g4Hunter ?? 0) > 0.9) n++
-  if ((c.g4NN ?? 0) > 0.5) n++
-  return n
-}
-
 export function ClusterCharts({ data, featureMode, silhouetteScore, quality, permutation, clusterMeta }: ClusterChartsProps) {
   const chartRef = useRef<HTMLDivElement>(null)
   const [maxVisibleClusters, setMaxVisibleClusters] = useState(0) // 0 = show all
@@ -263,7 +254,7 @@ function BubbleChart({ data }: { data: SequenceCluster[] }) {
   const defaultMetric = useMemo<YMetric>(() => {
     const hasG4NN = data.some((c) => (c.g4NN ?? 0) > 0)
     if (hasG4NN) return 'g4nn'
-    const hasCGcC = data.some((c) => c.cGcC > 0)
+    const hasCGcC = data.some((c) => (c.cGcC ?? 0) > 0)
     if (hasCGcC) return 'cgcc'
     return 'mfe'
   }, [data])
@@ -279,15 +270,17 @@ function BubbleChart({ data }: { data: SequenceCluster[] }) {
         xVal = c.avgMaxPercentRead
       }
 
-      let yVal: number
+      // Missing scores are dropped from the chart entirely. Plotting them at
+      // y = 0 would put "not measured" and "measured as zero" in the same place.
+      let yVal: number | null
       if (yAxisMetric === 'g4nn') {
-        yVal = c.g4NN ?? 0
+        yVal = c.g4NN
       } else if (yAxisMetric === 'g4hunter') {
-        yVal = c.g4Hunter ?? 0
+        yVal = c.g4Hunter
       } else if (yAxisMetric === 'cgcc') {
         yVal = c.cGcC
       } else {
-        yVal = -(c.rnaFold?.mfe ?? 0) // Negate so higher = more stable
+        yVal = c.rnaFold?.mfe == null ? null : -c.rnaFold.mfe // Negate so higher = more stable
       }
 
       return {
@@ -304,7 +297,7 @@ function BubbleChart({ data }: { data: SequenceCluster[] }) {
         size: c.size,
         fill: mfeColor(c.rnaFold?.mfe ?? 0),
       }
-    })
+    }).filter((d): d is typeof d & { y: number } => d.y !== null)
   }, [data, yAxisMetric])
 
   const xLabel = 'Avg Max Read%'
@@ -450,7 +443,7 @@ function ClusterSizeChart({ data }: { data: SequenceCluster[] }) {
   }
 
   function g4RiskLevel(c: SequenceCluster): string {
-    return c.g4Risk ?? 'Low'
+    return c.g4Risk ?? 'n/a'
   }
 
   const chartData = useMemo(() => {
@@ -552,7 +545,7 @@ function HeatmapChart({ data }: { data: SequenceCluster[] }) {
   const normalized = useMemo(() => {
     return topClusters.map((c) => {
       const vals = [
-        c.cGcC,
+        c.cGcC ?? 0,
         c.g4Hunter ?? 0,
         c.g4NN ?? 0,
         -(c.rnaFold?.mfe ?? 0), // Negate so higher = more stable
@@ -638,7 +631,7 @@ function HeatmapChart({ data }: { data: SequenceCluster[] }) {
               {/* Cells */}
               {normalized[row].map((val, col) => {
                 const rawVals = [
-                  cluster.cGcC,
+                  cluster.cGcC ?? 0,
                   cluster.g4Hunter ?? 0,
                   cluster.g4NN ?? 0,
                   cluster.rnaFold?.mfe ?? 0,

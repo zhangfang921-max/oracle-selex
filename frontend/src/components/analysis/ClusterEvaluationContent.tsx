@@ -9,6 +9,7 @@ import { TSNEChart } from './TSNEChart'
 import { PCAChart } from './PCAChart'
 import { UMAPChart } from './UMAPChart'
 import { QualityDashboard } from './QualityDashboard'
+import { fmtScore } from '@/lib/g4'
 import type { SequenceCluster } from '@/types/analysis'
 
 interface PermutationData {
@@ -133,9 +134,9 @@ export function ClusterEvaluationContent({
               const rows = data.map(c => [
                 String(c.id),
                 String(c.size),
-                c.cGcC ? c.cGcC.toFixed(2) : '-',
-                c.g4Hunter ? c.g4Hunter.toFixed(3) : '-',
-                c.g4NN ? c.g4NN.toFixed(4) : '-',
+                fmtScore(c.cGcC, 2, '-'),
+                fmtScore(c.g4Hunter, 3, '-'),
+                fmtScore(c.g4NN, 4, '-'),
                 c.representative
               ])
               downloadCSV('cluster_overview.csv', hdrs, rows)
