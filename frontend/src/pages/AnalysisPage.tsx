@@ -20,6 +20,7 @@ import { ClusterPanel } from '@/components/analysis/ClusterPanel'
 import { ClusterEvaluationFigure } from '@/components/analysis/ClusterEvaluationFigure'
 import { ClusterEvaluationContent } from '@/components/analysis/ClusterEvaluationContent'
 import { ClusterNetworkGraph } from '@/components/analysis/ClusterNetworkGraph'
+import { Acknowledgements } from '@/components/Acknowledgements'
 import {
   useAnalysisDetail,
   useCluster,
@@ -1017,6 +1018,8 @@ export default function AnalysisPage() {
             )}
           </TabsContent>
         </Tabs>
+
+        <Acknowledgements />
       </div>
     </div>
   )

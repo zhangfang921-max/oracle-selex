@@ -19,3 +19,24 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+SCOPE OF THIS LICENSE
+
+The MIT License above covers all source code in this repository.
+
+ORACLE calls third-party software that it does not redistribute and that remains
+under its own license:
+
+  * ViennaRNA Package (used via its RNAlib Python bindings, installed
+    separately) requires credit to its authors and to the Institute for
+    Theoretical Chemistry, University of Vienna.
+
+  * The optional G4NN neural-network model published with G4RNA screener by
+    Jean-Michel Garant is licensed GPL-3.0. It is not included here; deployers
+    install it themselves (see scripts/fetch_g4nn_model.md). ORACLE works
+    without it.
+
+See THIRD_PARTY_LICENSES.md for the full inventory, license terms, required
+attributions, and the history of components removed from this repository.

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { FadeIn, Stagger, HoverLift } from '@/components/MotionPrimitives'
 import { useAnalyses, useCreateAnalysis, useDeleteAnalysis } from '@/hooks/use-analysis'
+import { Acknowledgements } from '@/components/Acknowledgements'
 import { toast } from 'sonner'
 
 export default function Index() {
@@ -279,11 +280,13 @@ export default function Index() {
 
       {/* Footer */}
       <footer
-        className="text-center text-xs text-muted-foreground border-t border-border"
+        className="text-xs text-muted-foreground border-t border-border"
         style={{ padding: 'var(--spacing-lg) var(--spacing-xl)' }}
       >
-        ORACLE &mdash; Oligonucleotide Read Analysis &amp; Candidate Library Explorer
-        &middot; Powered by ViennaRNA
+        <p className="text-center" style={{ marginBottom: 'var(--spacing-sm)' }}>
+          ORACLE &mdash; Oligonucleotide Read Analysis &amp; Candidate Library Explorer
+        </p>
+        <Acknowledgements compact />
       </footer>
     </div>
   )
