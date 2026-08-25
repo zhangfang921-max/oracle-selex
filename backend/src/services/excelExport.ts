@@ -86,41 +86,28 @@ export async function generateExcel(
     })
   }
 
-  // === Enrichment Sheet ===
+  // === Sequences Sheet ===
   if (enrichmentData && enrichmentData.length > 0) {
-    const enrichSheet = workbook.addWorksheet('Enrichment')
-    const roundNums = analysis.rounds.map((r) => r.roundNumber).sort((a, b) => a - b)
+    const seqSheet = workbook.addWorksheet('Sequences')
 
     const columns: Partial<ExcelJS.Column>[] = [
       { header: 'Rank', key: 'rank', width: 8 },
       { header: 'Sequence', key: 'sequence', width: 50 },
-    ]
-    for (const rn of roundNums) {
-      columns.push({ header: `R${rn} Count`, key: `r${rn}_count`, width: 12 })
-      columns.push({ header: `R${rn} %`, key: `r${rn}_pct`, width: 10 })
-    }
-    columns.push(
-      { header: 'Enrichment Fold', key: 'enrichmentFold', width: 16 },
+      { header: 'Total Reads', key: 'totalReads', width: 14 },
       { header: 'Max % Read', key: 'maxPercentRead', width: 14 },
-      { header: 'Rounds Present', key: 'presentInRounds', width: 16 }
-    )
+    ]
 
-    enrichSheet.columns = columns
-    enrichSheet.getRow(1).eachCell((cell) => { Object.assign(cell, { style: headerStyle }) })
+    seqSheet.columns = columns
+    seqSheet.getRow(1).eachCell((cell) => { Object.assign(cell, { style: headerStyle }) })
 
     enrichmentData.forEach((entry: any, idx: number) => {
       const rowData: Record<string, any> = {
         rank: idx + 1,
         sequence: entry.sequence,
-        enrichmentFold: entry.enrichmentFold === Infinity ? 'New' : (entry.enrichmentFold ?? 'N/A'),
-        maxPercentRead: Math.round(entry.maxPercentRead * 10000) / 10000,
-        presentInRounds: entry.presentInRounds,
+        totalReads: entry.totalReads ?? 0,
+        maxPercentRead: Math.round((entry.maxPercentRead ?? 0) * 10000) / 10000,
       }
-      for (const rd of entry.rounds) {
-        rowData[`r${rd.roundNumber}_count`] = rd.readCount
-        rowData[`r${rd.roundNumber}_pct`] = Math.round(rd.percentRead * 10000) / 10000
-      }
-      const row = enrichSheet.addRow(rowData)
+      const row = seqSheet.addRow(rowData)
       row.eachCell((cell) => { Object.assign(cell, { style: dataStyle }) })
     })
   }

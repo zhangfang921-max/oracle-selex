@@ -1,4 +1,4 @@
-import { Search, Loader2, TrendingUp, ArrowRight } from 'lucide-react'
+import { Search, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { FadeIn, Stagger } from '@/components/MotionPrimitives'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
@@ -7,12 +7,10 @@ import type { MotifAnalysis } from '@/types/analysis'
 interface MotifPanelProps {
   data: MotifAnalysis | null
   isLoading?: boolean
-  hasEnrichment?: boolean
   onRunMotifs?: () => void
-  onGoToEnrichment?: () => void
 }
 
-export function MotifPanel({ data, isLoading, hasEnrichment, onRunMotifs, onGoToEnrichment }: MotifPanelProps) {
+export function MotifPanel({ data, isLoading, onRunMotifs }: MotifPanelProps) {
   if (isLoading) {
     return (
       <FadeIn className="flex flex-col items-center justify-center" style={{ minHeight: 240, gap: 'var(--spacing-md)' }}>
@@ -44,23 +42,13 @@ export function MotifPanel({ data, isLoading, hasEnrichment, onRunMotifs, onGoTo
               Conserved Motif Discovery
             </p>
             <p className="text-muted-foreground" style={{ fontSize: 'var(--font-size-small)', maxWidth: 420, margin: '0 auto' }}>
-              {hasEnrichment
-                ? 'Discover conserved sequence patterns among enriched candidates. Uses k-mer frequency analysis to find recurring motifs.'
-                : 'Run enrichment analysis first to identify candidates, then discover conserved motifs among them.'}
+              Discover conserved sequence patterns among the uploaded sequences. Uses k-mer frequency analysis to find recurring motifs.
             </p>
           </div>
-          {hasEnrichment ? (
-            <Button onClick={onRunMotifs} className="cursor-pointer" style={{ marginTop: 'var(--spacing-xs)' }}>
-              <Search className="w-4 h-4 mr-1" />
-              Discover Motifs
-            </Button>
-          ) : (
-            <Button variant="outline" onClick={onGoToEnrichment} className="cursor-pointer" style={{ marginTop: 'var(--spacing-xs)' }}>
-              <TrendingUp className="w-4 h-4 mr-1" />
-              Go to Enrichment Tab
-              <ArrowRight className="w-4 h-4 ml-1" />
-            </Button>
-          )}
+          <Button onClick={onRunMotifs} className="cursor-pointer" style={{ marginTop: 'var(--spacing-xs)' }}>
+            <Search className="w-4 h-4 mr-1" />
+            Discover Motifs
+          </Button>
         </div>
       </FadeIn>
     )

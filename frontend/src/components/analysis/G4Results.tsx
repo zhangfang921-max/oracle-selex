@@ -1,4 +1,4 @@
-import { FlaskConical, MousePointerClick, Loader2, ArrowRight } from 'lucide-react'
+import { FlaskConical, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { FadeIn, Stagger } from '@/components/MotionPrimitives'
 import type { G4Result } from '@/types/analysis'
@@ -8,10 +8,9 @@ interface G4ResultsProps {
   isLoading?: boolean
   selectedCount?: number
   onRunG4?: () => void
-  onGoToEnrichment?: () => void
 }
 
-export function G4Results({ data, isLoading, selectedCount = 0, onRunG4, onGoToEnrichment }: G4ResultsProps) {
+export function G4Results({ data, isLoading, selectedCount = 0, onRunG4 }: G4ResultsProps) {
   if (isLoading) {
     return (
       <FadeIn className="flex flex-col items-center justify-center" style={{ minHeight: 240, gap: 'var(--spacing-md)' }}>
@@ -45,19 +44,13 @@ export function G4Results({ data, isLoading, selectedCount = 0, onRunG4, onGoToE
             <p className="text-muted-foreground" style={{ fontSize: 'var(--font-size-small)', maxWidth: 400, margin: '0 auto' }}>
               {selectedCount > 0
                 ? `${selectedCount} sequences selected. Click below to screen them for G4 structures.`
-                : 'Select sequences from the Enrichment tab first, then run G4 screening to identify potential G-Quadruplex forming sequences.'}
+                : 'Select sequences first, then run G4 screening to identify potential G-Quadruplex forming sequences.'}
             </p>
           </div>
-          {selectedCount > 0 ? (
+          {selectedCount > 0 && (
             <Button onClick={onRunG4} className="cursor-pointer" style={{ marginTop: 'var(--spacing-xs)' }}>
               <FlaskConical className="w-4 h-4 mr-1" />
               Screen {selectedCount} Sequences
-            </Button>
-          ) : (
-            <Button variant="outline" onClick={onGoToEnrichment} className="cursor-pointer" style={{ marginTop: 'var(--spacing-xs)' }}>
-              <MousePointerClick className="w-4 h-4 mr-1" />
-              Go to Enrichment Tab
-              <ArrowRight className="w-4 h-4 ml-1" />
             </Button>
           )}
         </div>

@@ -1,4 +1,4 @@
-import { ExternalLink, CheckCircle, Cpu, Dna, MousePointerClick, Loader2, ArrowRight } from 'lucide-react'
+import { ExternalLink, CheckCircle, Cpu, Dna, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { FadeIn, Stagger } from '@/components/MotionPrimitives'
 import type { RNAFoldResult } from '@/types/analysis'
@@ -8,10 +8,9 @@ interface RNAFoldResultsProps {
   isLoading?: boolean
   selectedCount?: number
   onRunRNAFold?: () => void
-  onGoToEnrichment?: () => void
 }
 
-export function RNAFoldResults({ data, isLoading, selectedCount = 0, onRunRNAFold, onGoToEnrichment }: RNAFoldResultsProps) {
+export function RNAFoldResults({ data, isLoading, selectedCount = 0, onRunRNAFold }: RNAFoldResultsProps) {
   if (isLoading) {
     return (
       <FadeIn className="flex flex-col items-center justify-center" style={{ minHeight: 240, gap: 'var(--spacing-md)' }}>
@@ -46,19 +45,13 @@ export function RNAFoldResults({ data, isLoading, selectedCount = 0, onRunRNAFol
             <p className="text-muted-foreground" style={{ fontSize: 'var(--font-size-small)', maxWidth: 400, margin: '0 auto' }}>
               {selectedCount > 0
                 ? `${selectedCount} sequences selected. Click below to predict their secondary structures.`
-                : 'Select sequences from the Enrichment tab first, then run RNA folding to predict secondary structures with minimum free energy.'}
+                : 'Select sequences first, then run RNA folding to predict secondary structures with minimum free energy.'}
             </p>
           </div>
-          {selectedCount > 0 ? (
+          {selectedCount > 0 && (
             <Button onClick={onRunRNAFold} className="cursor-pointer" style={{ marginTop: 'var(--spacing-xs)' }}>
               <Dna className="w-4 h-4 mr-1" />
               Predict {selectedCount} Structures
-            </Button>
-          ) : (
-            <Button variant="outline" onClick={onGoToEnrichment} className="cursor-pointer" style={{ marginTop: 'var(--spacing-xs)' }}>
-              <MousePointerClick className="w-4 h-4 mr-1" />
-              Go to Enrichment Tab
-              <ArrowRight className="w-4 h-4 ml-1" />
             </Button>
           )}
         </div>

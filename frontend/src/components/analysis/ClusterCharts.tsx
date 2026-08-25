@@ -258,7 +258,6 @@ const Y_METRIC_OPTIONS: { value: YMetric; label: string }[] = [
 
 function BubbleChart({ data }: { data: SequenceCluster[] }) {
   // Determine if enrichment fold data is available (multi-round analysis)
-  const hasEnrichment = useMemo(() => data.some((c) => c.avgEnrichmentFold > 0), [data])
 
   // Determine best default y-axis metric: prefer G4NN if available, fallback to cGcC
   const defaultMetric = useMemo<YMetric>(() => {
@@ -275,13 +274,8 @@ function BubbleChart({ data }: { data: SequenceCluster[] }) {
   const chartData = useMemo(() => {
     return data.map((c, i) => {
       let xVal: number
-      if (hasEnrichment) {
-        let fold = c.avgEnrichmentFold
-        if (fold === Infinity || fold > 1e10) fold = 100
-        if (!fold || fold <= 0) fold = 0.1
-        xVal = Math.log10(fold + 1)
-      } else {
-        // Single-round: use read percentage as x-axis
+      {
+        // Single uploaded file: read percentage is the abundance axis
         xVal = c.avgMaxPercentRead
       }
 
@@ -303,7 +297,6 @@ function BubbleChart({ data }: { data: SequenceCluster[] }) {
         mfe: c.rnaFold?.mfe ?? 0,
         rank: i + 1,
         name: `#${i + 1}`,
-        fold: c.avgEnrichmentFold,
         percentRead: c.avgMaxPercentRead,
         g4nn: c.g4NN ?? 0,
         g4hunter: c.g4Hunter ?? 0,
@@ -312,10 +305,10 @@ function BubbleChart({ data }: { data: SequenceCluster[] }) {
         fill: mfeColor(c.rnaFold?.mfe ?? 0),
       }
     })
-  }, [data, hasEnrichment, yAxisMetric])
+  }, [data, yAxisMetric])
 
-  const xLabel = hasEnrichment ? 'log₁₀(Enrichment Fold + 1)' : 'Avg Max Read%'
-  const xName = hasEnrichment ? 'Enrichment (log₁₀)' : 'Read %'
+  const xLabel = 'Avg Max Read%'
+  const xName = 'Read %'
 
   // Auto, compact X axis. Was hard-coded to [0.01, 0.05], which only ever suited
   // the raw read-percent case and clipped log10(enrichment fold) values entirely.
@@ -336,7 +329,7 @@ function BubbleChart({ data }: { data: SequenceCluster[] }) {
       <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
         <div className="flex items-center gap-3">
           <p className="text-sm font-semibold">
-            E. {hasEnrichment ? `Enrichment Fold vs ${titleY}` : `Read Abundance vs ${titleY}`}
+            E. Read Abundance vs {titleY}
           </p>
           <select
             value={yAxisMetric}
@@ -403,10 +396,7 @@ function BubbleChart({ data }: { data: SequenceCluster[] }) {
                 return (
                   <div className="bg-background border border-border rounded-lg shadow-md" style={{ padding: '8px 12px', fontSize: 11 }}>
                     <p className="font-semibold">Cluster {d.name}</p>
-                    {hasEnrichment
-                      ? <p>Enrichment: {d.fold === Infinity ? '∞' : (d.fold?.toFixed(1) ?? '--')}x</p>
-                      : <p>Read%: {d.percentRead?.toFixed(4)}%</p>
-                    }
+                    <p>Read%: {d.percentRead?.toFixed(4)}%</p>
                     <p>G4NN: {d.g4nn.toFixed(4)}</p>
                     <p>G4Hunter: {d.g4hunter.toFixed(3)}</p>
                     <p>cGcC: {d.cgcc.toFixed(2)}</p>
@@ -468,7 +458,6 @@ function ClusterSizeChart({ data }: { data: SequenceCluster[] }) {
       rank: `#${i + 1}`,
       size: c.size,
       risk: g4RiskLevel(c),
-      fold: c.avgEnrichmentFold === Infinity ? 100 : (c.avgEnrichmentFold ?? 0),
     }))
   }, [data])
 

@@ -70,31 +70,6 @@ export function useUploadFile() {
   })
 }
 
-// Enrichment analysis
-export function useEnrichment() {
-  return useMutation({
-    mutationFn: async ({
-      analysisId,
-      minReadCount,
-      minPercentRead,
-      topN,
-    }: {
-      analysisId: string
-      minReadCount?: number
-      minPercentRead?: number
-      topN?: number
-    }) => {
-      const { data } = await apiClient.post('/analysis/enrichment', {
-        analysisId,
-        minReadCount,
-        minPercentRead,
-        topN,
-      })
-      return data.data as EnrichmentEntry[]
-    },
-  })
-}
-
 // Sequence clustering
 export function useCluster() {
   return useMutation({

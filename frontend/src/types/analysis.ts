@@ -24,17 +24,13 @@ export interface Sequence {
   percentRead: number
 }
 
+// Sequence-level entry consumed by clustering. Named EnrichmentEntry for
+// historical reasons; cross-round enrichment metrics were removed because
+// Classic ORACLE analyses a single uploaded file (one round).
 export interface EnrichmentEntry {
   sequence: string
-  rounds: {
-    roundNumber: number
-    readCount: number
-    percentRead: number
-  }[]
-  enrichmentFold: number | null
   maxPercentRead: number
   totalReads: number
-  presentInRounds: number
 }
 
 export interface G4Result {
@@ -80,10 +76,8 @@ export interface MotifAnalysis {
 
 export interface ClusterMember {
   sequence: string
-  enrichmentFold: number | null
   maxPercentRead: number
   totalReads: number
-  presentInRounds: number
   similarity: number
 }
 
@@ -109,8 +103,6 @@ export interface SequenceCluster {
   representative: string
   members: ClusterMember[]
   size: number
-  avgEnrichmentFold: number
-  maxEnrichmentFold: number
   avgMaxPercentRead: number
   g4Score: number
   g4Risk: 'High' | 'Medium' | 'Low'

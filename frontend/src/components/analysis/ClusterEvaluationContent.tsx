@@ -133,7 +133,6 @@ export function ClusterEvaluationContent({
               const rows = data.map(c => [
                 String(c.id),
                 String(c.size),
-                c.avgEnrichmentFold ? c.avgEnrichmentFold.toFixed(2) : '-',
                 c.cGcC ? c.cGcC.toFixed(2) : '-',
                 c.g4Hunter ? c.g4Hunter.toFixed(3) : '-',
                 c.g4NN ? c.g4NN.toFixed(4) : '-',

@@ -204,7 +204,7 @@ export default function AnalysisPage() {
   const getSequenceEntries = useCallback(() => {
     if (!analysis || analysis.rounds.length === 0) return []
     // Aggregate sequences across all rounds, use last round's data for read count
-    const seqMap = new Map<string, { sequence: string; maxPercentRead: number; totalReads: number; presentInRounds: number; enrichmentFold: number | null; rounds: { roundNumber: number; readCount: number; percentRead: number }[] }>()
+    const seqMap = new Map<string, { sequence: string; maxPercentRead: number; totalReads: number }>()
     const roundNumbers = analysis.rounds.map((r: any) => r.roundNumber).sort((a: number, b: number) => a - b)
     const lastRoundNum = roundNumbers[roundNumbers.length - 1]
 
@@ -216,11 +216,8 @@ export default function AnalysisPage() {
             sequence: seq.sequence,
             maxPercentRead: Number(seq.percentRead || 0),
             totalReads: Number(seq.readCount || 0),
-            presentInRounds: 1, rounds: [],
-            enrichmentFold: null,
           })
         } else {
-          existing.presentInRounds++; existing.rounds = []
           existing.totalReads += Number(seq.readCount || 0)
           existing.maxPercentRead = Math.max(existing.maxPercentRead, Number(seq.percentRead || 0))
         }
@@ -408,11 +405,8 @@ export default function AnalysisPage() {
       const entries = getSequenceEntries()
       const enrichmentForExport = entries.map((e) => ({
         sequence: e.sequence,
-        rounds: e.rounds || [],
-        enrichmentFold: e.enrichmentFold ?? null,
         maxPercentRead: e.maxPercentRead,
         totalReads: e.totalReads,
-        presentInRounds: e.presentInRounds,
       }))
       const blob = await exportMutation.mutateAsync({
         analysisId,
@@ -974,9 +968,7 @@ export default function AnalysisPage() {
             <ClusterPanel
               data={clusterData}
               isLoading={clusterMutation.isPending}
-              hasEnrichment={true}
               onRunCluster={runClustering}
-              onGoToEnrichment={() => setActiveTab('overview')}
               clusterMeta={clusterMeta}
               permutation={evaluationPermutation}
             />

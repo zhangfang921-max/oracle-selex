@@ -1,4 +1,4 @@
-import { FlaskConical, Dna, TrendingUp, Hash } from 'lucide-react'
+import { FlaskConical, Dna, Hash } from 'lucide-react'
 import { FadeIn, Stagger } from '@/components/MotionPrimitives'
 import type { Analysis, EnrichmentEntry } from '@/types/analysis'
 
@@ -14,10 +14,6 @@ export function StatsCards({ analysis, enrichmentData }: StatsCardsProps) {
     (s, r) => s + (r.sequences?.length ?? 0),
     0
   ) ?? 0
-  const topEnriched = enrichmentData.filter(
-    (e) => e.enrichmentFold !== null && e.enrichmentFold !== Infinity && e.enrichmentFold >= 2
-  ).length
-
   const cards = [
     {
       label: 'Selection Rounds',
@@ -36,12 +32,6 @@ export function StatsCards({ analysis, enrichmentData }: StatsCardsProps) {
       value: totalUnique.toLocaleString(),
       icon: Dna,
       color: 'var(--success)',
-    },
-    {
-      label: 'Enriched (>2x)',
-      value: topEnriched.toLocaleString(),
-      icon: TrendingUp,
-      color: 'var(--warning)',
     },
   ]
 

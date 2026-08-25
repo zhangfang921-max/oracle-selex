@@ -3,7 +3,6 @@ import multer from 'multer'
 import { gunzipSync } from 'zlib'
 import { prisma } from '../config/database'
 import { parseFasta } from '../services/fastaParser'
-import { calculateEnrichment } from '../services/enrichment'
 import { discoverMotifs } from '../services/motifDiscovery'
 import { scoreG4, scoreG4Batch } from '../services/g4Screener'
 import { predictStructureBatch } from '../services/rnaFold'
@@ -210,35 +209,6 @@ analysisRouter.post('/detail', async (req: Request, res: Response) => {
   res.json({ success: true, data: analysis })
 })
 
-// Run enrichment analysis
-analysisRouter.post('/enrichment', async (req: Request, res: Response) => {
-  const { analysisId, minReadCount = 1, minPercentRead = 0, topN = 500 } = req.body
-
-  // Fetch up to topN * 5 sequences per round to ensure accurate enrichment ranking
-  // while keeping query size manageable and avoiding gateway timeouts
-  const seqLimit = Math.min(topN * 5, 50000)
-
-  const analysis = await prisma.analysis.findUnique({
-    where: { id: analysisId },
-    include: {
-      rounds: {
-        orderBy: { roundNumber: 'asc' },
-        include: {
-          sequences: { orderBy: { readCount: 'desc' }, take: seqLimit },
-        },
-      },
-    },
-  })
-
-  if (!analysis) {
-    res.status(404).json({ success: false, message: 'Analysis not found' })
-    return
-  }
-
-  const result = calculateEnrichment(toPlainRounds(analysis.rounds), minReadCount, minPercentRead, topN)
-  res.json({ success: true, data: result })
-})
-
 // Run motif discovery
 analysisRouter.post('/motifs', async (req: Request, res: Response) => {
   const { sequences, kmerSize = 6, topN = 20 } = req.body
@@ -339,24 +309,16 @@ analysisRouter.post('/cluster', async (req: Request, res: Response) => {
     clusters = Array.from(groupMap.entries())
       .sort((a, b) => b[1].length - a[1].length)
       .map(([_, members], idx) => {
-        const finiteFolds = members
-          .map((m: any) => m.enrichmentFold)
-          .filter((f: any): f is number => f !== null && f !== Infinity && isFinite(f))
-
         return {
           id: idx + 1,
           representative: members[0].sequence,
           members: members.map((m: any, i: number) => ({
             sequence: m.sequence,
-            enrichmentFold: m.enrichmentFold,
             maxPercentRead: m.maxPercentRead,
             totalReads: m.totalReads,
-            presentInRounds: m.presentInRounds,
             similarity: i === 0 ? 1.0 : 0.85,
           })),
           size: members.length,
-          avgEnrichmentFold: finiteFolds.length > 0 ? Math.round((finiteFolds.reduce((s: number, f: number) => s + f, 0) / finiteFolds.length) * 100) / 100 : 0,
-          maxEnrichmentFold: finiteFolds.length > 0 ? Math.round(Math.max(...finiteFolds) * 100) / 100 : 0,
           avgMaxPercentRead: members.length > 0 ? Math.round((members.reduce((s: number, m: any) => s + m.maxPercentRead, 0) / members.length) * 10000) / 10000 : 0,
         }
       })

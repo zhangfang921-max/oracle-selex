@@ -2,7 +2,7 @@
  * Sequence Clustering Service
  * 
  * CD-HIT-like greedy length-sorted clustering:
- * 1. Sort sequences by enrichment fold (desc)
+ * 1. Sort sequences by read abundance (desc)
  * 2. For each sequence, check similarity against existing cluster representatives
  * 3. If similarity >= threshold, add to that cluster; otherwise create new cluster
  * 4. Uses Levenshtein distance with k-mer pre-filter for speed
@@ -10,10 +10,8 @@
 
 export interface ClusterMember {
   sequence: string
-  enrichmentFold: number | null
   maxPercentRead: number
   totalReads: number
-  presentInRounds: number
   similarity: number // similarity to representative (1.0 for the rep itself)
 }
 
@@ -22,17 +20,13 @@ export interface SequenceCluster {
   representative: string
   members: ClusterMember[]
   size: number
-  avgEnrichmentFold: number
-  maxEnrichmentFold: number
   avgMaxPercentRead: number
 }
 
 interface EnrichmentInput {
   sequence: string
-  enrichmentFold: number | null
   maxPercentRead: number
   totalReads: number
-  presentInRounds: number
 }
 
 /**
@@ -236,10 +230,8 @@ export function clusterSequences(
       if (sim >= identityThreshold) {
         clusters[i].members.push({
           sequence: entry.sequence,
-          enrichmentFold: entry.enrichmentFold,
           maxPercentRead: entry.maxPercentRead,
           totalReads: entry.totalReads,
-          presentInRounds: entry.presentInRounds,
           similarity: Math.round(sim * 1000) / 1000,
         })
         clusters[i].size++
@@ -256,16 +248,12 @@ export function clusterSequences(
         members: [
           {
             sequence: entry.sequence,
-            enrichmentFold: entry.enrichmentFold,
             maxPercentRead: entry.maxPercentRead,
             totalReads: entry.totalReads,
-            presentInRounds: entry.presentInRounds,
             similarity: 1.0,
           },
         ],
         size: 1,
-        avgEnrichmentFold: 0,
-        maxEnrichmentFold: 0,
         avgMaxPercentRead: 0,
       })
       repKmers.push(entryKmers)
@@ -275,33 +263,15 @@ export function clusterSequences(
 
   // Compute aggregate stats for each cluster
   for (const cluster of clusters) {
-    const finiteFolds = cluster.members
-      .map((m) => m.enrichmentFold)
-      .filter((f): f is number => f !== null && f !== Infinity && isFinite(f))
-
-    cluster.avgEnrichmentFold = finiteFolds.length > 0
-      ? Math.round((finiteFolds.reduce((s, f) => s + f, 0) / finiteFolds.length) * 100) / 100
-      : 0
-
-    cluster.maxEnrichmentFold = finiteFolds.length > 0
-      ? Math.round(Math.max(...finiteFolds) * 100) / 100
-      : 0
-
-    // Check for Infinity (new sequences)
-    const hasNew = cluster.members.some((m) => m.enrichmentFold === Infinity)
-    if (hasNew && cluster.maxEnrichmentFold === 0) {
-      cluster.maxEnrichmentFold = Infinity
-    }
-
     cluster.avgMaxPercentRead = cluster.members.length > 0
       ? Math.round((cluster.members.reduce((s, m) => s + m.maxPercentRead, 0) / cluster.members.length) * 10000) / 10000
       : 0
   }
 
-  // Sort clusters: by size desc, then by avgEnrichmentFold desc
+  // Sort clusters: by size desc, then by read abundance desc
   clusters.sort((a, b) => {
     if (b.size !== a.size) return b.size - a.size
-    return b.avgEnrichmentFold - a.avgEnrichmentFold
+    return b.avgMaxPercentRead - a.avgMaxPercentRead
   })
 
   // Re-assign IDs after sorting
@@ -353,10 +323,8 @@ export function clusterByStructure(
       if (sim >= identityThreshold) {
         clusters[i].members.push({
           sequence: entry.sequence,
-          enrichmentFold: entry.enrichmentFold,
           maxPercentRead: entry.maxPercentRead,
           totalReads: entry.totalReads,
-          presentInRounds: entry.presentInRounds,
           similarity: Math.round(sim * 1000) / 1000,
         })
         clusters[i].size++
@@ -372,16 +340,12 @@ export function clusterByStructure(
         members: [
           {
             sequence: entry.sequence,
-            enrichmentFold: entry.enrichmentFold,
             maxPercentRead: entry.maxPercentRead,
             totalReads: entry.totalReads,
-            presentInRounds: entry.presentInRounds,
             similarity: 1.0,
           },
         ],
         size: 1,
-        avgEnrichmentFold: 0,
-        maxEnrichmentFold: 0,
         avgMaxPercentRead: 0,
       })
       repStructures.push(structure)
@@ -390,32 +354,15 @@ export function clusterByStructure(
 
   // Compute aggregate stats
   for (const cluster of clusters) {
-    const finiteFolds = cluster.members
-      .map((m) => m.enrichmentFold)
-      .filter((f): f is number => f !== null && f !== Infinity && isFinite(f))
-
-    cluster.avgEnrichmentFold = finiteFolds.length > 0
-      ? Math.round((finiteFolds.reduce((s, f) => s + f, 0) / finiteFolds.length) * 100) / 100
-      : 0
-
-    cluster.maxEnrichmentFold = finiteFolds.length > 0
-      ? Math.round(Math.max(...finiteFolds) * 100) / 100
-      : 0
-
-    const hasNew = cluster.members.some((m) => m.enrichmentFold === Infinity)
-    if (hasNew && cluster.maxEnrichmentFold === 0) {
-      cluster.maxEnrichmentFold = Infinity
-    }
-
     cluster.avgMaxPercentRead = cluster.members.length > 0
       ? Math.round((cluster.members.reduce((s, m) => s + m.maxPercentRead, 0) / cluster.members.length) * 10000) / 10000
       : 0
   }
 
-  // Sort by size desc, then by avgEnrichmentFold desc
+  // Sort by size desc, then by read abundance desc
   clusters.sort((a, b) => {
     if (b.size !== a.size) return b.size - a.size
-    return b.avgEnrichmentFold - a.avgEnrichmentFold
+    return b.avgMaxPercentRead - a.avgMaxPercentRead
   })
 
   clusters.forEach((c, i) => { c.id = i + 1 })

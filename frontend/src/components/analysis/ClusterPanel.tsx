@@ -12,8 +12,6 @@ function exportClusterCSV(data: SequenceCluster[]) {
     'Rank',
     'Representative_Sequence',
     'Cluster_Size',
-    'Avg_Enrichment_Fold',
-    'Max_Enrichment_Fold',
     'Avg_Max_Percent_Read',
     'cGcC_Score',
     'G4Hunter_Score',
@@ -32,8 +30,6 @@ function exportClusterCSV(data: SequenceCluster[]) {
     i + 1,
     c.representative,
     c.size,
-    c.avgEnrichmentFold === Infinity ? 'Inf' : (c.avgEnrichmentFold?.toFixed(4) ?? ''),
-    c.maxEnrichmentFold === Infinity ? 'Inf' : (c.maxEnrichmentFold?.toFixed(4) ?? ''),
     c.avgMaxPercentRead?.toFixed(6) ?? '',
     c.cGcC?.toFixed(4) ?? '',
     (c.g4Hunter ?? 0).toFixed(4),
@@ -80,8 +76,6 @@ function exportClusterJSON(data: SequenceCluster[], clusterMeta?: ClusterMeta | 
       id: c.id,
       representative: c.representative,
       size: c.size,
-      avgEnrichmentFold: c.avgEnrichmentFold === Infinity ? 'Infinity' : c.avgEnrichmentFold,
-      maxEnrichmentFold: c.maxEnrichmentFold === Infinity ? 'Infinity' : c.maxEnrichmentFold,
       avgMaxPercentRead: c.avgMaxPercentRead,
       g4Score: c.g4Score,
       g4Risk: c.g4Risk,
@@ -106,10 +100,8 @@ function exportClusterJSON(data: SequenceCluster[], clusterMeta?: ClusterMeta | 
       } : null,
       members: c.members.map((m) => ({
         sequence: m.sequence,
-        enrichmentFold: m.enrichmentFold === Infinity ? 'Infinity' : m.enrichmentFold,
         maxPercentRead: m.maxPercentRead,
         totalReads: m.totalReads,
-        presentInRounds: m.presentInRounds,
         similarity: m.similarity,
       })),
     })),
@@ -201,9 +193,7 @@ interface ClusterMeta {
 interface ClusterPanelProps {
   data: SequenceCluster[]
   isLoading?: boolean
-  hasEnrichment?: boolean
   onRunCluster?: () => void
-  onGoToEnrichment?: () => void
   clusterMeta?: ClusterMeta | null
   permutation?: {
     p_values: number[]
@@ -383,7 +373,6 @@ Clusters are sorted by total read count descending — the most abundant cluster
                     <thead>
                       <tr className="bg-muted/30">
                         <th className="text-left font-semibold" style={{ padding: '6px 10px' }}>Sequence</th>
-                        <th className="text-right font-semibold" style={{ padding: '6px 10px' }}>Fold</th>
                         <th className="text-right font-semibold" style={{ padding: '6px 10px' }}>Max%</th>
                         <th className="text-right font-semibold" style={{ padding: '6px 10px' }}>Similarity</th>
                       </tr>
@@ -401,13 +390,6 @@ Clusters are sorted by total read count descending — the most abundant cluster
                                 (rep)
                               </span>
                             )}
-                          </td>
-                          <td className="text-right tabular-nums" style={{ padding: '5px 10px' }}>
-                            {m.enrichmentFold === null
-                              ? '--'
-                              : m.enrichmentFold === Infinity
-                                ? 'New'
-                                : m.enrichmentFold.toFixed(1) + 'x'}
                           </td>
                           <td className="text-right tabular-nums" style={{ padding: '5px 10px' }}>
                             {m.maxPercentRead.toFixed(3)}%
@@ -865,9 +847,7 @@ function CategoryFilters({
 export function ClusterPanel({
   data,
   isLoading,
-  hasEnrichment,
   onRunCluster,
-  onGoToEnrichment,
   clusterMeta,
   permutation,
 }: ClusterPanelProps) {
@@ -909,23 +889,13 @@ export function ClusterPanel({
               Sequence Clustering
             </p>
             <p className="text-muted-foreground" style={{ fontSize: 'var(--font-size-small)', maxWidth: 440, margin: '0 auto' }}>
-              {hasEnrichment
-                ? 'Group similar enriched sequences into clusters. Each cluster will be scored for G4 potential and predicted for RNA secondary structure.'
-                : 'Run enrichment analysis first to identify candidate sequences, then cluster them by similarity.'}
+              Group similar sequences into clusters. Each cluster will be scored for G4 potential and predicted for RNA secondary structure.
             </p>
           </div>
-          {hasEnrichment ? (
-            <Button onClick={onRunCluster} className="cursor-pointer" size="lg" style={{ marginTop: 'var(--spacing-xs)' }}>
-              <Layers className="w-4 h-4 mr-2" />
-              Run Clustering
-            </Button>
-          ) : (
-            <Button variant="outline" onClick={onGoToEnrichment} className="cursor-pointer" style={{ marginTop: 'var(--spacing-xs)' }}>
-              <TrendingUp className="w-4 h-4 mr-1" />
-              Run Enrichment First
-              <ArrowRight className="w-4 h-4 ml-1" />
-            </Button>
-          )}
+          <Button onClick={onRunCluster} className="cursor-pointer" size="lg" style={{ marginTop: 'var(--spacing-xs)' }}>
+            <Layers className="w-4 h-4 mr-2" />
+            Run Clustering
+          </Button>
         </div>
       </FadeIn>
     )
