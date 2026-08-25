@@ -19,7 +19,7 @@ import { downloadChartPanel, downloadPanelAsPNG } from '@/lib/svg-export'
 import { DistanceMatrixChart } from './DistanceMatrixChart'
 import { ClusterOverviewBubbleChart } from './ClusterOverviewBubbleChart'
 import type { SequenceCluster } from '@/types/analysis'
-import { ChartLayout } from '@/config/chartLayout'
+import { ChartLayout, niceAxis } from '@/config/chartLayout'
 
 interface ClusterChartsProps {
   data: SequenceCluster[]
@@ -317,6 +317,13 @@ function BubbleChart({ data }: { data: SequenceCluster[] }) {
   const xLabel = hasEnrichment ? 'log₁₀(Enrichment Fold + 1)' : 'Avg Max Read%'
   const xName = hasEnrichment ? 'Enrichment (log₁₀)' : 'Read %'
 
+  // Auto, compact X axis. Was hard-coded to [0.01, 0.05], which only ever suited
+  // the raw read-percent case and clipped log10(enrichment fold) values entirely.
+  const xAxisAuto = useMemo(
+    () => niceAxis(chartData.map((d) => d.x), { targetTicks: 6, pad: 0.06 }),
+    [chartData]
+  )
+
   const yLabel = yAxisMetric === 'g4nn' ? 'G4NN Score' : yAxisMetric === 'g4hunter' ? 'G4Hunter Score' : yAxisMetric === 'cgcc' ? 'cGcC Score' : '-MFE (kcal/mol)'
   const yDomain: [number, number] | undefined = yAxisMetric === 'g4nn' ? [0, 1] : yAxisMetric === 'g4hunter' ? [0, 2] : undefined
   const yRefLine = yAxisMetric === 'g4nn' ? 0.5 : yAxisMetric === 'g4hunter' ? 0.9 : yAxisMetric === 'cgcc' ? 4.5 : 10
@@ -358,8 +365,8 @@ function BubbleChart({ data }: { data: SequenceCluster[] }) {
               type="number"
               dataKey="x"
               name={xLabel}
-              domain={[0.01, 0.05]}
-              ticks={[0.01, 0.02, 0.03, 0.04, 0.05]}
+              domain={xAxisAuto.domain}
+              ticks={xAxisAuto.ticks}
               tick={{ fontSize: 14, fill: '#000', fontFamily: 'system-ui, sans-serif', fontWeight: 600 }}
               axisLine={{ strokeWidth: 1, stroke: '#000' }}
               tickLine={{ stroke: '#000' }}

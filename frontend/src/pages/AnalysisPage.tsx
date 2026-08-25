@@ -431,34 +431,31 @@ export default function AnalysisPage() {
     }
   }, [analysisId, analysis, exportMutation, getSequenceEntries, clusterData])
 
-  // ── Z-score sorted data for Evaluation tab (consistent with Cluster Details) ──
+  // ── Read-count sorted data for Evaluation tab (identical ordering to Results tab) ──
+  const clusterReadTotal = useCallback((cluster: { members: { totalReads?: number }[] }) => {
+    return cluster.members.reduce((s, m) => s + (m.totalReads || 0), 0)
+  }, [])
+
   const evaluationData = useMemo(() => {
-    const scores = clusterMeta?.abundance?.enrichment_scores
-    if (!scores || scores.length === 0) return clusterData
-    // Sort by Z-score descending, remap cluster IDs to rank
+    if (!clusterData || clusterData.length === 0) return clusterData
+    // Sort by total read count descending, remap cluster IDs to rank
     return [...clusterData]
-      .sort((a, b) => {
-        const za = scores[a.id - 1] ?? -Infinity
-        const zb = scores[b.id - 1] ?? -Infinity
-        return zb - za
-      })
+      .sort((a, b) => clusterReadTotal(b) - clusterReadTotal(a))
       .map((cluster, idx) => ({
         ...cluster,
-        id: idx + 1,  // Z-score rank becomes the new ID
+        id: idx + 1,  // read-count rank becomes the new ID
         members: cluster.members.map(m => ({ ...m })),
       }))
-  }, [clusterData, clusterMeta])
+  }, [clusterData, clusterReadTotal])
 
-  // ── Remapped permutation data (indexed by Z-score rank, not original cluster ID) ──
+  // ── Remapped permutation data (indexed by read-count rank, not original cluster ID) ──
   const evaluationPermutation = useMemo(() => {
     const perm = clusterMeta?.permutation
-    const scores = clusterMeta?.abundance?.enrichment_scores
-    if (!perm || !scores || scores.length === 0) return perm
-    // Build Z-score order mapping: original-id-1 → new-rank
-    const order = clusterData
-      .map((c, i) => ({ id: c.id, score: scores[c.id - 1] ?? -Infinity }))
-      .sort((a, b) => b.score - a.score)
-      .map(x => x.id - 1)  // 0-based original indices
+    if (!perm || !clusterData || clusterData.length === 0) return perm
+    // Build read-count order mapping: original-id-1 → new-rank
+    const order = [...clusterData]
+      .sort((a, b) => clusterReadTotal(b) - clusterReadTotal(a))
+      .map(c => c.id - 1)  // 0-based original indices
     return {
       p_values: order.map(i => perm.p_values[i] ?? 0),
       significant: order.map(i => perm.significant[i] ?? false),
@@ -468,7 +465,7 @@ export default function AnalysisPage() {
       null_distributions: (perm as any).null_distributions ? order.map(i => (perm as any).null_distributions[i] ?? []) : undefined,
       observed_compactness: (perm as any).observed_compactness ? order.map(i => (perm as any).observed_compactness[i] ?? 0) : undefined,
     }
-  }, [clusterData, clusterMeta])
+  }, [clusterData, clusterMeta, clusterReadTotal])
 
   // Workflow steps (simplified to 2)
   const workflowSteps: WorkflowStep[] = [

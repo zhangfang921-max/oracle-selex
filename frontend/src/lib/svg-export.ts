@@ -408,7 +408,11 @@ export function downloadPanelAsPNG(
             // ── Vertical column rendering (original Panel A style) ──
             const bgW = Math.max(80, Math.min(220, w - lLeft - 12))
             const bgH = items.length * itemH + 16
-            ctx.fillStyle = 'rgba(255,255,255,0.85)'
+            // Background — use legend's actual CSS background (was hard-coded to
+            // 0.85, so exported PNGs had a near-opaque legend box while the
+            // on-screen legend was translucent).
+            const legendBgV = ls.background || ls.backgroundColor || 'rgba(255,255,255,0.12)'
+            ctx.fillStyle = legendBgV.includes('rgba') ? legendBgV : 'rgba(255,255,255,0.12)'
             const rx = 4; const ry = 4
             const bx = lLeft - 6; const by = lTop - 4
             ctx.beginPath()

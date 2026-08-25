@@ -14,7 +14,7 @@ import {
 } from 'recharts'
 import { Camera, FileSpreadsheet } from 'lucide-react'
 import { downloadChartPanel, downloadPanelAsPNG } from '@/lib/svg-export'
-import { ChartLayout } from '@/config/chartLayout'
+import { ChartLayout, niceAxis } from '@/config/chartLayout'
 import type { SequenceCluster } from '@/types/analysis'
 
 interface ClusterOverviewBubbleChartProps {
@@ -67,6 +67,18 @@ export function ClusterOverviewBubbleChart({ data, clusterMeta, compact }: Clust
     }))
   }, [data])
 
+  // ── Auto, compact axes derived from the data ──
+  // Previously hard-coded to X [0,140] / Y [0,0.06], which clipped clusters
+  // whenever a sequencing file produced larger sizes or enrichment values.
+  const xAxis = useMemo(
+    () => niceAxis(chartData.map(d => d.x), { targetTicks: 7, fromZero: true, integer: true, pad: 0.06 }),
+    [chartData]
+  )
+  const yAxis = useMemo(
+    () => niceAxis(chartData.map(d => d.y), { targetTicks: 6, fromZero: true, pad: 0.08 }),
+    [chartData]
+  )
+
   const handleCameraDownload = useCallback((filename: string) => {
     if (!panelRef.current) return
     downloadChartPanel(panelRef.current, filename)
@@ -85,10 +97,10 @@ export function ClusterOverviewBubbleChart({ data, clusterMeta, compact }: Clust
     <>
       <div style={{ width: 650, maxWidth: '100%', aspectRatio: '3/2', position: 'relative', margin: '0 auto' }}><ResponsiveContainer width="100%" height="100%">
         <ScatterChart margin={ChartLayout.bubble.margin}>
-                    <XAxis type="number" dataKey="x" name="Cluster Size" domain={[0, 140]} ticks={[0,20,40,60,80,100,120,140]} tick={{ fontSize: 14, fill: AXIS_BLACK, fontFamily: 'system-ui, sans-serif', fontWeight: 600 }} stroke={AXIS_BLACK} strokeWidth={1} tickLine={{ stroke: AXIS_BLACK }}>
+                    <XAxis type="number" dataKey="x" name="Cluster Size" domain={xAxis.domain} ticks={xAxis.ticks} tick={{ fontSize: 14, fill: AXIS_BLACK, fontFamily: 'system-ui, sans-serif', fontWeight: 600 }} stroke={AXIS_BLACK} strokeWidth={1} tickLine={{ stroke: AXIS_BLACK }}>
             <Label value="Cluster Size (members)" position="insideBottom" offset={-10} style={{ fontSize: 16, fontWeight: 600, fill: AXIS_BLACK, fontFamily: 'system-ui, sans-serif' }} />
           </XAxis>
-          <YAxis type="number" dataKey="y" name="Enrichment" domain={[0, 0.06]} ticks={[0, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06]} tick={{ fontSize: 14, fill: AXIS_BLACK, fontFamily: 'system-ui, sans-serif', fontWeight: 600 }} stroke={AXIS_BLACK} strokeWidth={1} tickLine={{ stroke: AXIS_BLACK }}>
+          <YAxis type="number" dataKey="y" name="Enrichment" domain={yAxis.domain} ticks={yAxis.ticks} tick={{ fontSize: 14, fill: AXIS_BLACK, fontFamily: 'system-ui, sans-serif', fontWeight: 600 }} stroke={AXIS_BLACK} strokeWidth={1} tickLine={{ stroke: AXIS_BLACK }}>
             <Label
               content={({ viewBox }: any) => {
                 const { x, y, height } = viewBox || { x: 0, y: 0, height: 0 };

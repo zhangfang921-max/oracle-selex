@@ -13,7 +13,7 @@ import {
 } from 'recharts'
 import { Activity, FlaskConical, Loader2, Camera, FileSpreadsheet } from 'lucide-react'
 import type { SequenceCluster } from '@/types/analysis'
-import { ChartLayout } from '@/config/chartLayout'
+import { ChartLayout, niceAxis } from '@/config/chartLayout'
 import { downloadCSV } from '@/lib/export-csv'
 import { downloadPanelAsPNG } from '@/lib/svg-export'
 
@@ -372,10 +372,38 @@ function PermNullBoxPanel({ permutation, maxClusters }: { permutation: Permutati
             stroke="#1a1a1a" strokeDasharray="6 4" strokeWidth={0.8} opacity={0.25} />
 
           {Array.from({ length: nClusters }, (_, i) => i).map(i => {
-            if (!nd[i] || nd[i].length === 0) return null
-            const st = boxStats(nd[i])
             const cx = offX + slotW * i + slotW / 2
             const sig = sigs[i]
+            const isEmpty = !nd[i] || nd[i].length === 0
+
+            // Singleton / empty distribution: render placeholder
+            if (isEmpty) {
+              const obsY = yScale(obs[i] || 0)
+              return (
+                <g key={`n-${i}`}>
+                  {/* Dashed circle placeholder */}
+                  <circle cx={cx} cy={mt + ph / 2} r={boxW * 0.4}
+                    fill="none" stroke="#ccc" strokeWidth={1} strokeDasharray="3 3" />
+                  <text x={cx} y={mt + ph / 2 + 4} textAnchor="middle"
+                    style={{ fontSize: '9px', fill: '#999', fontFamily: 'system-ui, sans-serif' }}>n=1</text>
+                  {/* Observed marker at p=1.0 level */}
+                  {obs[i] !== undefined && obs[i] > 0 && (
+                    <circle cx={cx} cy={obsY} r={3.5}
+                      fill="#9ca3af" opacity={0.6} />
+                  )}
+                  <text x={cx} y={mt + ph + 12} textAnchor="middle"
+                    style={{ fontSize: '11px', fontWeight: 600, fill: '#9ca3af', fontFamily: 'system-ui, sans-serif' }}>
+                    #{i + 1}
+                  </text>
+                  <text x={cx} y={mt + ph + 22} textAnchor="middle"
+                    style={{ fontSize: '11px', fill: '#888', fontFamily: 'system-ui, sans-serif' }}>
+                    ({sizes[i]})
+                  </text>
+                </g>
+              )
+            }
+
+            const st = boxStats(nd[i])
             const fillOp = sig ? 0.18 : 0.10
             const boxColorNS = sig ? boxColor : 'oklch(0.55 0.03 25)'  // non-significant: warm gray
             const useColor = sig ? boxColor : boxColorNS
@@ -429,7 +457,7 @@ function PermNullBoxPanel({ permutation, maxClusters }: { permutation: Permutati
           })}
           {/* In-chart legend — horizontal row, right-aligned */}
           <g transform={`translate(${width - 320}, 2)`}>
-            <rect x={0} y={0} width={310} height={20} fill="rgba(255,255,255,0.85)" rx={4} />
+            <rect x={0} y={0} width={310} height={20} fill="rgba(255,255,255,0.12)" rx={4} />
             <line x1={6} y1={10} x2={18} y2={10} stroke="#dc2626" strokeWidth={2} />
             <text x={22} y={14} style={{ fontSize: '11px', fontWeight: 600, fill: '#1a1a1a', fontFamily: 'system-ui, sans-serif' }}>observed</text>
             <rect x={82} y={5} width={14} height={8} fill={boxColor} fillOpacity={0.2} stroke={boxColor} strokeWidth={0.5} rx={1} />
@@ -477,14 +505,19 @@ export function QualityDashboard({ silhouetteScore, quality, permutation, data, 
           kmeans: 'oklch(0.55 0.20 25)', gmm: 'oklch(0.55 0.20 145)',
           spectral: 'oklch(0.55 0.20 85)', dbscan: 'oklch(0.55 0.18 340)', hdbscan: 'oklch(0.55 0.18 10)',
         }
-        const fullScanMethods = methods.filter(m => (byMethod[m]?.length || 0) >= 6)
-        const sparseMethods = methods.filter(m => (byMethod[m]?.length || 0) < 6)
+        const fullScanMethods = methods
         const algoScatterData: Record<string, { K: number; silhouette: number }[]> = {}
         for (const [m, pts] of Object.entries(byMethod)) { algoScatterData[m] = pts.sort((a, b) => a.K - b.K) }
         let bestPoint: { K: number; silhouette: number; method: string } | null = null
         algorithmResults.forEach(r => { if (!bestPoint || r.silhouette > bestPoint.silhouette) bestPoint = { K: r.K, silhouette: r.silhouette, method: r.method } })
-        const allSil = algorithmResults.map(r => r.silhouette).filter(v => isFinite(v))
-        const silMax = Math.max(0.3, ...allSil)
+        // Auto, compact axes derived from the data (no hard-coded clipping range)
+        const scannedKs = [...new Set(algorithmResults.map(r => r.K))].sort((a, b) => a - b)
+        const kAxis = niceAxis(scannedKs, { targetTicks: 6, integer: true, pad: 0.04 })
+        const silAxis = niceAxis(algorithmResults.map(r => r.silhouette), { targetTicks: 5, pad: 0.08 })
+        // Every variant is scanned over an identical K grid by the backend, so a
+        // mismatch here means some (method, K) fits failed — surface it in the caption.
+        const pointsPerMethod = [...new Set(methods.map(m => byMethod[m]?.length || 0))]
+        const gridAligned = pointsPerMethod.length === 1
 
         const panelB = (
         <div id="algo-select-panel" className="border border-border rounded-xl bg-card overflow-hidden" style={{ flex: '1 1 0', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
@@ -518,9 +551,9 @@ export function QualityDashboard({ silhouetteScore, quality, permutation, data, 
                 <ScatterChart margin={ChartLayout.algorithmSelection.margin}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e8e8e8" />
                   <XAxis type="number" dataKey="K" tick={{ fontSize: 14, fill: '#1a1a1a', fontFamily: 'system-ui, sans-serif', fontWeight: 600 }} stroke="#1a1a1a" strokeWidth={1}
-                    domain={[0, 30]} ticks={[0,5,10,15,20,25,30]} allowDecimals={false}
+                    domain={kAxis.domain} ticks={kAxis.ticks} allowDecimals={false}
                     label={{ value: 'K (Number of Clusters)', position: 'bottom', offset: 2, style: { fontSize: 16, fontWeight: 600, fill: '#1a1a1a', fontFamily: 'system-ui, sans-serif' } }} />
-                  <YAxis domain={[0, 0.4]} ticks={[0, 0.1, 0.2, 0.3, 0.4]} tick={{ fontSize: 14, fill: '#1a1a1a', fontFamily: 'system-ui, sans-serif', fontWeight: 600 }} stroke="#1a1a1a" strokeWidth={1}
+                  <YAxis domain={silAxis.domain} ticks={silAxis.ticks} tick={{ fontSize: 14, fill: '#1a1a1a', fontFamily: 'system-ui, sans-serif', fontWeight: 600 }} stroke="#1a1a1a" strokeWidth={1}
                     label={{
                       content: ({ viewBox }: any) => {
                         const { x, y, height } = viewBox || { x: 0, y: 0, height: 0 }
@@ -538,10 +571,6 @@ export function QualityDashboard({ silhouetteScore, quality, permutation, data, 
                     <Scatter key={m} name={m} data={algoScatterData[m]} dataKey="silhouette"
                       fill={COLORS[m] || '#888'} line={{ stroke: COLORS[m] || '#888', strokeWidth: 1.5, strokeDasharray: '4 3' }}
                       shape={(props: any) => <circle cx={props.cx} cy={props.cy} r={5} fill={props.fill} opacity={0.85} />} />
-                  ))}
-                  {sparseMethods.map(m => (
-                    <Scatter key={m} name={m} data={algoScatterData[m]} dataKey="silhouette" fill={COLORS[m] || '#888'}
-                      shape={(props: any) => <polygon points={`${props.cx},${props.cy - 7} ${props.cx + 6},${props.cy} ${props.cx},${props.cy + 7} ${props.cx - 6},${props.cy}`} fill={props.fill} opacity={0.85} />} />
                   ))}
                   {bestPoint && (
                     <Scatter name="Best" data={[bestPoint]} dataKey="silhouette" fill="#dc2626"
@@ -562,7 +591,7 @@ export function QualityDashboard({ silhouetteScore, quality, permutation, data, 
             {/* Legend — algorithm names only */}
             <div data-legend="panel-b" style={{ position: 'absolute', top: 8, left: 150, maxWidth: 'calc(100% - 108px)', display: 'flex', flexWrap: 'wrap', gap: '1px 6px', pointerEvents: 'none' }}>
               {methods.map(m => (
-                <span key={m} style={{ display: 'inline-flex', alignItems: 'center', gap: 1, fontSize: 14, fontWeight: 600, color: '#1a1a1a', background: 'rgba(255,255,255,0.2)', padding: '0px 3px', borderRadius: 3 }}>
+                <span key={m} style={{ display: 'inline-flex', alignItems: 'center', gap: 1, fontSize: 14, fontWeight: 600, color: '#1a1a1a', background: 'rgba(255,255,255,0.12)', padding: '0px 3px', borderRadius: 3 }}>
                   <span style={{ width: 7, height: 7, background: COLORS[m] || '#888', borderRadius: '50%' }} />{m}
                 </span>
               ))}
@@ -571,7 +600,9 @@ export function QualityDashboard({ silhouetteScore, quality, permutation, data, 
             {/* Caption */}
             <div className="rounded-lg border border-border/50 bg-muted/5" style={{ padding: '10px 14px', marginTop: 4 }}>
               <p className="text-xs font-semibold" style={{ marginBottom: 4 }}>
-                <strong>B.</strong> Algorithm selection by silhouette score. Four algorithms evaluated across K = 0–30. Best result marked ★.
+                <strong>B.</strong> Algorithm selection by silhouette score. {methods.length} method variant{methods.length === 1 ? '' : 's'} evaluated over an identical K grid
+                {scannedKs.length > 0 ? ` (K = ${scannedKs[0]}–${scannedKs[scannedKs.length - 1]}, ${scannedKs.length} values per method)` : ''}
+                {gridAligned ? '' : ' (some fits did not converge, so a few series are shorter)'}. Best result marked ★.
               </p>
             </div>
           </div>
