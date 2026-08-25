@@ -39,6 +39,33 @@ If you use ORACLE in your research, please cite:
 
 A Zenodo DOI will be available upon publication.
 
+## Deployment notes
+
+ORACLE runs a Node/TypeScript backend that spawns three Python microservices:
+`rnafold_service.py` (3001), `g4_service.py` (3002) and `tsne_service.py` (3003).
+
+**The G4NN model is not in this repository.** It is GPL-3.0 and git-ignored (see
+[scripts/fetch_g4nn_model.md](scripts/fetch_g4nn_model.md)), so a fresh clone or a
+`git clean -xdf` will drop it and every sequence will then report `g4NN: null`. Two safeguards:
+
+- On startup the backend queries `http://localhost:3002/health` and prints a loud warning when
+  `model_loaded` is false.
+- Check any time with `curl -s http://localhost:3002/health`.
+
+A backup copy of the model, together with a deployment and licensing memo, is kept outside the
+repository at:
+
+```
+OneDrive/研究组管理/_知识库/02_科研项目/ORACLE_SELEX平台_CityU合作/05_部署与许可/
+```
+
+After changing anything under `backend/src/`, rebuild before restarting so the compiled
+`dist/index.js` picks up the new microservice paths:
+
+```bash
+cd backend && pnpm build
+```
+
 ## Acknowledgements
 
 ORACLE is built on work by other groups. Please cite the underlying methods alongside ORACLE.

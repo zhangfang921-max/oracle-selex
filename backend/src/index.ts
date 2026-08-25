@@ -98,6 +98,49 @@ function stopG4ScreenerService(): void {
 }
 
 /**
+ * Verify that the optional G4NN model is installed, and say so loudly if not.
+ *
+ * The model is deliberately not tracked in git (GPL-3.0, see
+ * scripts/fetch_g4nn_model.md), so a fresh clone or a `git clean -xdf` will
+ * silently drop it. Without this check the only symptom would be g4NN coming
+ * back as null for every sequence, which is easy to miss for weeks.
+ */
+async function verifyG4Model(): Promise<void> {
+  const DELAY_MS = 3000
+  const ATTEMPTS = 5
+
+  for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, DELAY_MS))
+    try {
+      const resp = await fetch('http://localhost:3002/health')
+      if (!resp.ok) continue
+      const health = await resp.json() as { model_loaded?: boolean; engine?: string }
+
+      if (health.model_loaded) {
+        console.log('[G4Screener] G4NN model loaded — cGcC, G4Hunter and G4NN available')
+      } else {
+        console.warn(
+          '\n' +
+          '================================================================\n' +
+          '  WARNING: G4NN model NOT installed\n' +
+          '  Sequences will be scored with cGcC and G4Hunter only, and\n' +
+          '  g4NN will be reported as null for every sequence.\n' +
+          '  To restore G4NN, place G4RNA_2016-11-07.pkl in models/ or set\n' +
+          '  G4NN_MODEL_PATH. See scripts/fetch_g4nn_model.md\n' +
+          '================================================================\n'
+        )
+      }
+      return
+    } catch {
+      // service still starting up; retry
+    }
+  }
+
+  console.warn('[G4Screener] Could not reach the G4 service health endpoint; ' +
+    'G4 scores may be produced by the TypeScript fallback')
+}
+
+/**
  * Start the t-SNE visualization microservice (Python) on port 3003.
  */
 function startTSNEService(): void {
@@ -143,6 +186,9 @@ const startServer = async () => {
     startRNAFoldService()
     startG4ScreenerService()
     startTSNEService()
+
+    // Fire-and-forget: reports whether the optional GPL-3.0 G4NN model is present
+    void verifyG4Model()
 
     // Test database connection silently
     if (env.DATABASE_URL) {
