@@ -1,8 +1,7 @@
 {
-  "name": "spec-template-backend",
+  "name": "oracle-selex-backend",
   "version": "1.0.0",
   "description": "Backend API server for full-stack web application template",
-  
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -23,7 +22,7 @@
     "postgresql",
     "prisma"
   ],
-  "author": "",
+  "author": "Fang Zhang",
   "license": "MIT",
   "dependencies": {
     "@prisma/client": "^6.1.0",

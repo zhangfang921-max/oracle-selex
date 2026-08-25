@@ -1,5 +1,5 @@
 {
-  "name": "frontend",
+  "name": "oracle-selex-frontend",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -78,5 +78,8 @@
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.46.3",
     "vite": "^7.2.2"
-  }
+  },
+  "author": "Fang Zhang",
+  "license": "MIT",
+  "description": "ORACLE frontend: web interface for SELEX NGS analysis"
 }
