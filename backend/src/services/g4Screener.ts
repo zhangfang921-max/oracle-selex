@@ -16,7 +16,11 @@
  * available either way.
  */
 
-const G4_SERVICE_URL = 'http://localhost:3002'
+// The Python service reads G4_PORT (default 3002). Honour the same variable here
+// so changing the port cannot leave Node dialling the old one. G4_SERVICE_URL
+// overrides both, for the case where G4 scoring runs on another host.
+const G4_PORT = process.env.G4_PORT ?? '3002'
+const G4_SERVICE_URL = process.env.G4_SERVICE_URL ?? `http://localhost:${G4_PORT}`
 
 export interface G4Result {
   g4Score: number | null   // composite score (0-2), null when scoring unavailable
@@ -38,7 +42,7 @@ export interface G4Motif {
 }
 
 /**
- * Screen a batch of sequences using the G4RNA Screener Python service.
+ * Screen a batch of sequences using ORACLE's Python G4 scoring service.
  * Returns one G4Result per sequence.
  */
 export async function scoreG4Batch(sequences: string[]): Promise<G4Result[]> {

@@ -49,7 +49,7 @@ function startRNAFoldService(): void {
 }
 
 /**
- * Start the G4 screening microservice (Python) on port 3002.
+ * Start the G4 screening microservice (Python) on G4_PORT (default 3002).
  * Scores cGcC and G4Hunter; adds G4NN when the optional external model is
  * installed (see scripts/fetch_g4nn_model.md).
  */
