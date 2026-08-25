@@ -21,6 +21,7 @@ import { ClusterEvaluationFigure } from '@/components/analysis/ClusterEvaluation
 import { ClusterEvaluationContent } from '@/components/analysis/ClusterEvaluationContent'
 import { ClusterNetworkGraph } from '@/components/analysis/ClusterNetworkGraph'
 import { Acknowledgements } from '@/components/Acknowledgements'
+import { OracleMark } from '@/components/OracleMark'
 import { allUnscored } from '@/lib/g4'
 import {
   useAnalysisDetail,
@@ -518,6 +519,7 @@ export default function AnalysisPage() {
             </button>
             <div>
               <div className="flex items-center" style={{ gap: 'var(--spacing-xs)' }}>
+                <OracleMark className="w-4 h-4 text-primary" />
                 <span className="text-xs font-semibold text-primary tracking-widest uppercase">ORACLE</span>
                 <span className="text-xs text-muted-foreground">/</span>
                 <h1 className="font-bold" style={{ fontSize: 'var(--font-size-headline)', fontFamily: 'var(--font-family-heading)' }}>

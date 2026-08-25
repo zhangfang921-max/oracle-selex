@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="ORACLE">
+  <title>ORACLE</title>
+  <!--
+    ORACLE mark. Original artwork, no third-party assets.
+    Four outer arcs  = diversity of the starting library / the four bases / a G4 tetrad
+    One bright arc   = the lineage that survives SELEX enrichment
+    Solid centre dot = the converged candidate
+    Outline reads as the letter O. Background is the CSS primary token
+    oklch(0.55 0.20 265), converted exactly to #3665E4 (see scripts/logo_geom.py).
+  -->
+  <rect width="64" height="64" rx="14" fill="#3665E4"/>
+  <g fill="none" stroke="#FFFFFF" stroke-width="8">
+    <path d="M 48.548 19.071 A 21 21 0 0 1 48.548 44.929" stroke-opacity="0.62"/>
+    <path d="M 44.929 48.548 A 21 21 0 0 1 19.071 48.548" stroke-opacity="0.62"/>
+    <path d="M 15.452 44.929 A 21 21 0 0 1 15.452 19.071" stroke-opacity="0.62"/>
+    <path d="M 19.071 15.452 A 21 21 0 0 1 44.929 15.452"/>
+  </g>
+  <circle cx="32" cy="32" r="6.5" fill="#FFFFFF"/>
+</svg>

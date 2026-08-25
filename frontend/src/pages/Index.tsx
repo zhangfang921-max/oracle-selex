@@ -4,6 +4,7 @@ import { Dna, Upload, Layers, Search, FlaskConical, FileSpreadsheet, Trash2 } fr
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { FadeIn, Stagger, HoverLift } from '@/components/MotionPrimitives'
+import { OracleMark } from '@/components/OracleMark'
 import { useAnalyses, useCreateAnalysis, useDeleteAnalysis } from '@/hooks/use-analysis'
 import { Acknowledgements } from '@/components/Acknowledgements'
 import { toast } from 'sonner'
@@ -40,7 +41,7 @@ export default function Index() {
     { icon: Upload, title: 'Simple Upload', desc: 'Upload a single FASTA file with automatic read count parsing' },
     { icon: Layers, title: 'Sequence & Structure Clustering', desc: 'Group similar sequences by identity or dot-bracket structure' },
     { icon: Search, title: 'Motif Discovery', desc: 'K-mer frequency analysis and consensus motif generation' },
-    { icon: FlaskConical, title: 'G4 Screening', desc: 'G-quadruplex formation potential scoring (G4RNA Screener logic)' },
+    { icon: FlaskConical, title: 'G4 Screening', desc: 'G-quadruplex propensity scored by cGcC, G4Hunter and G4NN' },
     { icon: Dna, title: 'RNA Folding', desc: 'ViennaRNA RNAfold with G-Quadruplex structure prediction' },
     { icon: FileSpreadsheet, title: 'Excel Export', desc: 'Download all results as formatted multi-sheet spreadsheets' },
   ]
@@ -65,7 +66,7 @@ export default function Index() {
             {/* Glass header bar */}
             <div className="flex items-center justify-between" style={{ marginBottom: 'var(--spacing-lg)', paddingBottom: 'var(--spacing-sm)', borderBottom: '1px solid rgba(255,255,255,0.2)' }}>
               <div className="flex items-center" style={{ gap: 'var(--spacing-sm)' }}>
-                <Dna className="w-6 h-6 opacity-70" />
+                <OracleMark className="w-6 h-6" />
                 <span
                   className="font-bold tracking-widest uppercase"
                   style={{ fontSize: 'var(--font-size-small)', letterSpacing: '0.2em', opacity: 0.8 }}

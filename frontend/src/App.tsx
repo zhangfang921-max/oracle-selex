@@ -31,11 +31,11 @@ function App() {
         <Toaster />
         <BrowserRouter>
           <AnimatedRoutes>
-            <Route path="/" data-genie-title="Home" data-genie-key="Home" element={<PageTransition transition="slide-up"><Index /></PageTransition>} />
-            <Route path="/upload/:analysisId" data-genie-title="Upload" data-genie-key="Upload" element={<PageTransition transition="slide-up"><UploadPage /></PageTransition>} />
-            <Route path="/analysis/:analysisId" data-genie-title="Analysis" data-genie-key="Analysis" element={<PageTransition transition="fade"><AnalysisPage /></PageTransition>} />
+            <Route path="/" element={<PageTransition transition="slide-up"><Index /></PageTransition>} />
+            <Route path="/upload/:analysisId" element={<PageTransition transition="slide-up"><UploadPage /></PageTransition>} />
+            <Route path="/analysis/:analysisId" element={<PageTransition transition="fade"><AnalysisPage /></PageTransition>} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-            <Route path="*" data-genie-key="NotFound" data-genie-title="Not Found" element={<PageTransition transition="fade"><NotFound /></PageTransition>} />
+            <Route path="*" element={<PageTransition transition="fade"><NotFound /></PageTransition>} />
           </AnimatedRoutes>
         </BrowserRouter>
       </TooltipProvider>
