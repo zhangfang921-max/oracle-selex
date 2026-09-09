@@ -119,6 +119,9 @@ export async function generateExcel(
       { header: 'Sequence', key: 'sequence', width: 50 },
       { header: 'G4 Score', key: 'g4Score', width: 12 },
       { header: 'cGcC', key: 'cGcC', width: 10 },
+      { header: 'G4Hunter', key: 'g4Hunter', width: 12 },
+      { header: 'G4NN', key: 'g4NN', width: 12 },
+      { header: 'G4 Risk', key: 'g4Risk', width: 12 },
       { header: 'G4 Motifs', key: 'numG4Motifs', width: 12 },
       { header: 'Top Motif', key: 'topMotif', width: 40 },
     ]
@@ -129,6 +132,9 @@ export async function generateExcel(
         sequence: entry.sequence,
         g4Score: entry.g4Score,
         cGcC: entry.cGcC,
+        g4Hunter: entry.g4Hunter,
+        g4NN: entry.g4NN,
+        g4Risk: entry.g4Risk,
         numG4Motifs: entry.numG4Motifs,
         topMotif: entry.g4Motifs?.[0]?.motif || 'None',
       })
@@ -141,8 +147,9 @@ export async function generateExcel(
     const foldSheet = workbook.addWorksheet('RNA Structure')
     foldSheet.columns = [
       { header: 'Sequence', key: 'sequence', width: 50 },
-      { header: 'Dot-Bracket', key: 'dotBracket', width: 50 },
-      { header: 'MFE (kcal/mol)', key: 'mfe', width: 16 },
+      { header: 'Dot-Bracket (with G4)', key: 'dotBracket', width: 50 },
+      { header: 'MFE with G4 (kcal/mol)', key: 'mfe', width: 20 },
+      { header: 'MFE without G4 (kcal/mol)', key: 'mfeNoG4', width: 22 },
       { header: 'Base Pairs', key: 'numBasePairs', width: 12 },
     ]
     foldSheet.getRow(1).eachCell((cell) => { Object.assign(cell, { style: headerStyle }) })
@@ -152,6 +159,7 @@ export async function generateExcel(
         sequence: entry.sequence,
         dotBracket: entry.dotBracket,
         mfe: entry.mfe,
+        mfeNoG4: entry.mfeNoG4,
         numBasePairs: entry.numBasePairs,
       })
       row.eachCell((cell) => { Object.assign(cell, { style: dataStyle }) })

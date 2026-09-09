@@ -260,7 +260,7 @@ analysisRouter.post('/rnafold', async (req: Request, res: Response) => {
 
 // Export results to Excel
 analysisRouter.post('/export', async (req: Request, res: Response) => {
-  const { analysisId, enrichmentData, g4Data, rnaFoldData, motifData } = req.body
+  const { analysisId, enrichmentData, g4Data, rnaFoldData, motifData, clusterData } = req.body
 
   const analysis = await prisma.analysis.findUnique({
     where: { id: analysisId },
@@ -277,8 +277,40 @@ analysisRouter.post('/export', async (req: Request, res: Response) => {
     return
   }
 
+  // The frontend sends clusterData (SequenceCluster[]), which carries the full
+  // G4 scores (g4Hunter/g4NN/g4Risk) and RNA folding results (with/without G4).
+  // If g4Data/rnaFoldData were not passed explicitly, derive them from clusterData.
+  let g4ForExport = g4Data
+  let rnaForExport = rnaFoldData
+  if (clusterData && Array.isArray(clusterData) && clusterData.length > 0) {
+    if (!g4ForExport || g4ForExport.length === 0) {
+      g4ForExport = clusterData.map((c: any) => ({
+        sequence: c.representative,
+        g4Score: c.g4Score ?? null,
+        cGcC: c.cGcC ?? null,
+        g4Hunter: c.g4Hunter ?? null,
+        g4NN: c.g4NN ?? null,
+        g4Risk: c.g4Risk ?? null,
+        numG4Motifs: c.numG4Motifs ?? 0,
+        g4Motifs: c.g4Motifs ?? [],
+      }))
+    }
+    if (!rnaForExport || rnaForExport.length === 0) {
+      rnaForExport = clusterData.map((c: any) => ({
+        sequence: c.representative,
+        dotBracket: c.rnaFold?.dotBracket ?? null,
+        mfe: c.rnaFold?.mfe ?? null,
+        numBasePairs: c.rnaFold?.numBasePairs ?? null,
+        hasGQuad: c.rnaFold?.hasGQuad ?? null,
+        dotBracketNoG4: c.rnaFoldNoG4?.dotBracket ?? null,
+        mfeNoG4: c.rnaFoldNoG4?.mfe ?? null,
+        numBasePairsNoG4: c.rnaFoldNoG4?.numBasePairs ?? null,
+      }))
+    }
+  }
+
   const plainAnalysis = { ...analysis, rounds: toPlainRounds(analysis.rounds) }
-  const buffer = await generateExcel(plainAnalysis, enrichmentData, g4Data, rnaFoldData, motifData)
+  const buffer = await generateExcel(plainAnalysis, enrichmentData, g4ForExport, rnaForExport, motifData)
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
   res.setHeader('Content-Disposition', `attachment; filename="${analysis.name}_results.xlsx"`)
