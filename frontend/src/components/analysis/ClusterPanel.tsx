@@ -124,7 +124,7 @@ function exportMembersCSV(
   data: SequenceCluster[],
   permutation?: { p_values: number[]; significant: boolean[]; cluster_sizes: number[]; threshold: number } | null
 ) {
-  const headers = ['sequence', 'cluster', 'read_count', 'z_score', 'significant']
+  const headers = ['sequence', 'cluster_rank', 'read_count', 'z_score', 'significant']
 
   const rows: string[][] = []
   data.forEach((c, ci) => {
@@ -942,7 +942,7 @@ export function ClusterPanel({
                 onClick={() => exportClusterCSV(sorted)}
                 className="flex items-center font-medium rounded-lg border border-border/50 hover:bg-muted/50 transition-colors cursor-pointer"
                 style={{ padding: '8px 16px', gap: 6, fontSize: 'var(--font-size-small)', background: 'var(--glass-bg)', backdropFilter: 'blur(8px)' }}
-                title="Export summary CSV (cluster-level, 17 columns)"
+                title="Export summary CSV (cluster-level, 17 columns). Cluster_ID = original id sorted by cluster size (member count); Rank = rank by total read count (descending), matches on-page #n"
               >
                 <FileSpreadsheet size={15} />
                 Summary CSV
@@ -960,7 +960,7 @@ export function ClusterPanel({
                 onClick={() => exportMembersCSV(sorted, permutation)}
                 className="flex items-center font-medium rounded-lg border border-border/50 hover:bg-muted/50 transition-colors cursor-pointer"
                 style={{ padding: '8px 16px', gap: 6, fontSize: 'var(--font-size-small)', background: 'var(--glass-bg)', backdropFilter: 'blur(8px)' }}
-                title="Export per-member CSV (sequence, cluster, read_count, z_score, significant) — for downstream cluster-level graph"
+                title="Export per-member CSV (sequence, cluster_rank, read_count, z_score, significant). cluster_rank = rank by total read count (descending), matches on-page #n and Summary CSV 'Rank' column"
               >
                 <FileSpreadsheet size={15} />
                 Members CSV
