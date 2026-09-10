@@ -939,7 +939,7 @@ export function ClusterPanel({
             </div>
             <div className="flex items-center" style={{ gap: 6 }}>
               <button
-                onClick={() => exportClusterCSV(data)}
+                onClick={() => exportClusterCSV(sorted)}
                 className="flex items-center font-medium rounded-lg border border-border/50 hover:bg-muted/50 transition-colors cursor-pointer"
                 style={{ padding: '8px 16px', gap: 6, fontSize: 'var(--font-size-small)', background: 'var(--glass-bg)', backdropFilter: 'blur(8px)' }}
                 title="Export summary CSV (cluster-level, 17 columns)"
@@ -948,7 +948,7 @@ export function ClusterPanel({
                 Summary CSV
               </button>
               <button
-                onClick={() => exportClusterJSON(data, clusterMeta)}
+                onClick={() => exportClusterJSON(sorted, clusterMeta)}
                 className="flex items-center font-medium rounded-lg border border-primary/30 hover:bg-primary/5 transition-colors cursor-pointer"
                 style={{ padding: '8px 16px', gap: 6, fontSize: 'var(--font-size-small)', background: 'var(--glass-bg)', backdropFilter: 'blur(8px)', color: 'var(--primary)' }}
                 title="Export full data as JSON (per-member sequences, G4 motifs, RNA structures)"
@@ -957,7 +957,7 @@ export function ClusterPanel({
                 JSON (Full)
               </button>
               <button
-                onClick={() => exportMembersCSV(data, permutation)}
+                onClick={() => exportMembersCSV(sorted, permutation)}
                 className="flex items-center font-medium rounded-lg border border-border/50 hover:bg-muted/50 transition-colors cursor-pointer"
                 style={{ padding: '8px 16px', gap: 6, fontSize: 'var(--font-size-small)', background: 'var(--glass-bg)', backdropFilter: 'blur(8px)' }}
                 title="Export per-member CSV (sequence, cluster, read_count, z_score, significant) — for downstream cluster-level graph"
