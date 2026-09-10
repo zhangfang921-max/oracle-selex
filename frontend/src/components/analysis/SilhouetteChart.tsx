@@ -210,7 +210,7 @@ export function SilhouetteChart({ data }: SilhouetteChartProps) {
             {computed && (
               <>
                 <button onClick={exportCSV} className="flex items-center text-xs font-medium rounded-md border border-border bg-background hover:bg-muted transition-colors cursor-pointer" style={{ padding: '5px 10px', gap: 4 }}>
-                  <FileSpreadsheet size={12} /> CSV
+                  <FileSpreadsheet size={12} /> Silhouette CSV
                 </button>
                 <button onClick={exportPNG} className="flex items-center text-xs font-medium rounded-md border border-border bg-background hover:bg-muted transition-colors cursor-pointer" style={{ padding: '5px 10px', gap: 4 }}>
                   <Download size={12} /> PNG (300dpi)

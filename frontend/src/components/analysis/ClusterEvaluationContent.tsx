@@ -128,7 +128,7 @@ export function ClusterEvaluationContent({
             style={{ padding: '4px 8px' }}>
             <Camera size={13} />
           </button>
-          <button title="Download CSV"
+          <button title="Download results CSV"
             onClick={() => {
               const hdrs = ['cluster', 'members', 'enrichment_score', 'cGcC', 'G4Hunter', 'G4NN', 'representative']
               const rows = data.map(c => [
@@ -143,7 +143,7 @@ export function ClusterEvaluationContent({
             }}
             className="flex items-center text-xs rounded-md border border-border bg-background hover:bg-muted transition-colors cursor-pointer"
             style={{ padding: '4px 8px' }}>
-            <FileSpreadsheet size={13} />
+            <FileSpreadsheet size={13} /> <span>Results CSV</span>
           </button>
         </div>
       </div>

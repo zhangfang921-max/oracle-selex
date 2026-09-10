@@ -579,6 +579,19 @@ export default function AnalysisPage() {
           </div>
         )}
 
+        {/* ── Results title with analysis name ── */}
+        <div style={{ marginBottom: 'var(--spacing-md)' }}>
+          <h2
+            className="font-semibold"
+            style={{ fontSize: 'var(--font-size-headline)', fontFamily: 'var(--font-family-heading)', marginBottom: '2px' }}
+          >
+            {analysis.name || 'Analysis'}
+          </h2>
+          <p className="text-muted-foreground" style={{ fontSize: 'var(--font-size-small)' }}>
+            Results &middot; {clusterData.length > 0 ? `${clusterData.length} clusters` : `${analysis.rounds.length} round${analysis.rounds.length !== 1 ? 's' : ''}`}
+          </p>
+        </div>
+
         {/* ── Tabs — Glassmorphism pill navigation ── */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <FadeIn>

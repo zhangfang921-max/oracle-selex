@@ -945,7 +945,7 @@ export function ClusterPanel({
                 title="Export summary CSV (cluster-level, 17 columns)"
               >
                 <FileSpreadsheet size={15} />
-                CSV
+                Summary CSV
               </button>
               <button
                 onClick={() => exportClusterJSON(data, clusterMeta)}

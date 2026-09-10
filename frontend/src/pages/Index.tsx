@@ -1,20 +1,18 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Dna, Upload, Layers, Search, FlaskConical, FileSpreadsheet, Trash2 } from 'lucide-react'
+import { Dna, Upload, Layers, Search, FlaskConical, FileSpreadsheet } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { FadeIn, Stagger, HoverLift } from '@/components/MotionPrimitives'
 import { OracleMark } from '@/components/OracleMark'
-import { useAnalyses, useCreateAnalysis, useDeleteAnalysis } from '@/hooks/use-analysis'
+import { useCreateAnalysis } from '@/hooks/use-analysis'
 import { Acknowledgements } from '@/components/Acknowledgements'
 import { toast } from 'sonner'
 
 export default function Index() {
   const navigate = useNavigate()
   const [name, setName] = useState('')
-  const { data: analyses, isLoading } = useAnalyses()
   const createAnalysis = useCreateAnalysis()
-  const deleteAnalysis = useDeleteAnalysis()
 
   const handleCreate = async () => {
     try {
@@ -23,17 +21,6 @@ export default function Index() {
       navigate(`/upload/${analysis.id}`)
     } catch {
       toast.error('Failed to create analysis')
-    }
-  }
-
-  const handleDelete = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (!confirm('Delete this analysis and all its data?')) return
-    try {
-      await deleteAnalysis.mutateAsync(id)
-      toast.success('Analysis deleted')
-    } catch {
-      toast.error('Failed to delete')
     }
   }
 
@@ -216,68 +203,7 @@ export default function Index() {
         </div>
       </section>
 
-      {/* Previous Analyses */}
-      <section className="container max-w-5xl" style={{ padding: 'var(--spacing-2xl) var(--spacing-xl)' }}>
-        <FadeIn>
-          <h2
-            className="font-semibold"
-            style={{ fontSize: 'var(--font-size-headline)', marginBottom: 'var(--spacing-md)' }}
-          >
-            Previous Analyses
-          </h2>
-        </FadeIn>
-
-        {isLoading ? (
-          <div className="text-muted-foreground text-sm">Loading...</div>
-        ) : !analyses || analyses.length === 0 ? (
-          <FadeIn>
-            <div
-              className="border border-dashed border-border rounded-lg text-center text-muted-foreground"
-              style={{ padding: 'var(--spacing-2xl)' }}
-            >
-              No analyses yet. Create one above to get started.
-            </div>
-          </FadeIn>
-        ) : (
-          <Stagger stagger={0.05} className="flex flex-col" style={{ gap: 'var(--spacing-sm)' }}>
-            {analyses.map((a) => (
-              <HoverLift key={a.id}>
-                <div
-                  className="bg-card border border-border rounded-lg shadow-sm flex items-center cursor-pointer hover:border-primary/30 transition-colors"
-                  style={{ padding: 'var(--spacing-md) var(--spacing-lg)' }}
-                  onClick={() => {
-                    if (a.rounds.length === 0) {
-                      navigate(`/upload/${a.id}`)
-                    } else {
-                      navigate(`/analysis/${a.id}`)
-                    }
-                  }}
-                >
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold truncate" style={{ fontSize: 'var(--font-size-body)' }}>{a.name}</h3>
-                    <div className="flex flex-wrap text-muted-foreground" style={{ fontSize: 'var(--font-size-small)', gap: 'var(--spacing-sm)', marginTop: '4px' }}>
-                      <span>{a.rounds.length} round{a.rounds.length !== 1 ? 's' : ''}</span>
-                      <span>{new Date(a.createdAt).toLocaleDateString()}</span>
-                      {a.rounds.length > 0 && (
-                        <span>
-                          {a.rounds.reduce((s, r) => s + (Number(r.totalReads) || 0), 0).toLocaleString()} total reads
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <button
-                    onClick={(e) => handleDelete(a.id, e)}
-                    className="text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
-                    style={{ padding: 'var(--spacing-xs)' }}
-                  >
-                    <Trash2 className="w-5 h-5" />
-                  </button>
-                </div>
-              </HoverLift>
-            ))}
-          </Stagger>
-        )}
-      </section>
+      {/* Previous Analyses section removed for user data privacy */}
 
       {/* Footer */}
       <footer
