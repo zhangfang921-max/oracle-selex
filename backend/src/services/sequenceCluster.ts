@@ -268,10 +268,12 @@ export function clusterSequences(
       : 0
   }
 
-  // Sort clusters: by size desc, then by read abundance desc
+  // Sort clusters: by total read count desc, then by size desc
   clusters.sort((a, b) => {
-    if (b.size !== a.size) return b.size - a.size
-    return b.avgMaxPercentRead - a.avgMaxPercentRead
+    const totalA = a.members.reduce((s, m) => s + m.totalReads, 0)
+    const totalB = b.members.reduce((s, m) => s + m.totalReads, 0)
+    if (totalB !== totalA) return totalB - totalA
+    return b.size - a.size
   })
 
   // Re-assign IDs after sorting
@@ -359,10 +361,12 @@ export function clusterByStructure(
       : 0
   }
 
-  // Sort by size desc, then by read abundance desc
+  // Sort by total read count desc, then by size desc
   clusters.sort((a, b) => {
-    if (b.size !== a.size) return b.size - a.size
-    return b.avgMaxPercentRead - a.avgMaxPercentRead
+    const totalA = a.members.reduce((s, m) => s + m.totalReads, 0)
+    const totalB = b.members.reduce((s, m) => s + m.totalReads, 0)
+    if (totalB !== totalA) return totalB - totalA
+    return b.size - a.size
   })
 
   clusters.forEach((c, i) => { c.id = i + 1 })
