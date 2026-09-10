@@ -128,7 +128,7 @@ function exportMembersCSV(
 
   const rows: string[][] = []
   data.forEach((c, ci) => {
-    const sig = permutation?.significant?.[ci] ?? false
+    const sig = permutation?.significant?.[c.id - 1] ?? false
     const members = c.members
     if (members.length === 0) return
 
@@ -143,7 +143,7 @@ function exportMembersCSV(
       const z = (rc - mean) / std
       rows.push([
         m.sequence,
-        String(c.id),
+        String(ci + 1),
         String(rc),
         z.toFixed(4),
         sig ? '1' : '0',
