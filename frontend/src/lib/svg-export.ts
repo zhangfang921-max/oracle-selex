@@ -260,15 +260,17 @@ export function downloadPanelAsPNG(
 
     const canvas = document.createElement('canvas')
     const scale = 3
-    canvas.width = w * scale
-    canvas.height = canvasH * scale
+    const pad = 20
+    canvas.width = (w + 2 * pad) * scale
+    canvas.height = (canvasH + 2 * pad) * scale
     const ctx = canvas.getContext('2d')!
     ctx.scale(scale, scale)
-    // Fill background
+    // Fill background (full canvas, includes padding)
     if (!opts?.transparent) {
       ctx.fillStyle = '#ffffff'
-      ctx.fillRect(0, 0, w, canvasH)
+      ctx.fillRect(0, 0, w + 2 * pad, canvasH + 2 * pad)
     }
+    ctx.translate(pad, pad)
     ctx.drawImage(img, 0, 0, w, h)
 
     if (hasLegend) {
@@ -487,11 +489,13 @@ export function downloadPanelAsPNG(
       console.warn(`[PNG export] Legend render error for "${name}":`, e.message)
       // Fallback: still try to save as PNG without legend (chart only)
       const canvas = document.createElement('canvas')
-      canvas.width = w * 3
-      canvas.height = h * 3
+      const pad = 20
+      canvas.width = (w + 2 * pad) * 3
+      canvas.height = (h + 2 * pad) * 3
       const ctx = canvas.getContext('2d')!
       ctx.scale(3, 3)
-      if (!opts?.transparent) { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h) }
+      if (!opts?.transparent) { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w + 2 * pad, h + 2 * pad) }
+      ctx.translate(pad, pad)
       ctx.drawImage(img, 0, 0, w, h)
       canvas.toBlob(blob => {
         if (!blob) return
