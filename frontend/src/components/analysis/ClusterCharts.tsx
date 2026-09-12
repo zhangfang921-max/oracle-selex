@@ -735,6 +735,23 @@ function MFEDistributionChart({ data }: { data: SequenceCluster[] }) {
     )
   }
 
+  const renderG4Marker = (props: any) => {
+    const { x, y, width, height, index } = props
+    const diff = chartData[index]?.diff ?? 0
+    if (diff >= 0) return <g />
+    const cx = x + width / 2
+    const cy = y + height + 5
+    const r = width * 0.45
+    return (
+      <g>
+        <circle cx={cx} cy={cy} r={r} fill="#E74C3C" />
+        <text x={cx} y={cy + r + 12} textAnchor="middle" fontSize={11} fill="#C0392B" fontWeight={700}>
+          {`ΔMFE=${diff.toFixed(1)}`}
+        </text>
+      </g>
+    )
+  }
+
   return (
     <div id="panel-d-results" className="chart-panel">
       <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
@@ -786,7 +803,7 @@ function MFEDistributionChart({ data }: { data: SequenceCluster[] }) {
                 name === 'withG4' ? 'With G4' : 'Without G4',
               ]}
             />
-            <Bar dataKey="withG4" fill={COLORS.mfeStable} radius={[3, 3, 0, 0]} isAnimationActive={false} />
+            <Bar dataKey="withG4" fill={COLORS.mfeStable} radius={[3, 3, 0, 0]} isAnimationActive={false} label={renderG4Marker} />
             <Bar dataKey="withoutG4" fill={COLORS.accent} radius={[3, 3, 0, 0]} isAnimationActive={false} />
           </BarChart>
         </ResponsiveContainer>
@@ -804,7 +821,7 @@ function MFEDistributionChart({ data }: { data: SequenceCluster[] }) {
       {/* Caption */}
       <div className="rounded-lg border border-border/50 bg-muted/5" style={{ padding: '10px 14px', marginTop: 4 }}>
         <p className="text-xs font-semibold" style={{ marginBottom: 4 }}>
-          <strong>D.</strong> MFE comparison of cluster representatives with G4 enabled vs disabled. More negative ΔG = more thermodynamically stable secondary structure.
+          <strong>D.</strong> MFE comparison of cluster representatives with G4 constraints enabled (blue) versus disabled (orange). Height difference = ΔMFE; ΔMFE &lt; 0 (red dot) indicates G4-forming propensity, ΔMFE = 0 indicates non-G4.
         </p>
       </div>
     </div>
