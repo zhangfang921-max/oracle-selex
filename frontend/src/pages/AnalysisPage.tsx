@@ -115,6 +115,8 @@ export default function AnalysisPage() {
   const [selectionCriterion, setSelectionCriterion] = useState<'silhouette' | 'davies_bouldin' | 'calinski_harabasz'>('silhouette')
   // Min clusters for DB/CH (prevents collapsing to K=2)
   const [minClusters, setMinClusters] = useState(2)
+  // Min cluster size: post-clustering merge of small/singleton clusters (0=disabled)
+  const [minClusterSize, setMinClusterSize] = useState(2)
   // Two-stage clustering: high-abundance anchor threshold (0=disabled, 0-1=percentile, >=2=absolute)
   const [abundanceThreshold, setAbundanceThreshold] = useState(0)
   // Abundance-weighted clustering: weight sequences by read count
@@ -291,6 +293,7 @@ export default function AnalysisPage() {
             selectionCriterion,
             readCounts,
             ...(abundanceThreshold > 0 ? { abundanceThreshold } : {}),
+            ...(minClusterSize > 0 ? { minClusterSize } : {}),
             ...(primerMode === 'manual' && forwardPrimer.trim() ? { forwardPrimer: forwardPrimer.trim() } : {}),
             ...(primerMode === 'manual' && reversePrimer.trim() ? { reversePrimer: reversePrimer.trim() } : {}),
           }),
@@ -812,6 +815,17 @@ export default function AnalysisPage() {
                         <input
                           type="number" min={2} max={30} value={minClusters}
                           onChange={(e) => setMinClusters(Math.max(2, parseInt(e.target.value) || 2))}
+                          className="h-8 w-16 rounded-md border border-input bg-background px-2 text-xs"
+                        />
+                      </div>
+                    )}
+                    {/* Min cluster size: merge small/singleton clusters after clustering */}
+                    {clusterMode === 'auto-optimal' && (
+                      <div className="flex items-center" style={{ gap: 6 }}>
+                        <label className="text-xs text-muted-foreground whitespace-nowrap">Min Cluster Size</label>
+                        <input
+                          type="number" min={0} max={50} value={minClusterSize}
+                          onChange={(e) => setMinClusterSize(Math.max(0, parseInt(e.target.value) || 0))}
                           className="h-8 w-16 rounded-md border border-input bg-background px-2 text-xs"
                         />
                       </div>

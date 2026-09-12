@@ -486,6 +486,50 @@ def fit_abundance_model(read_counts: List[int], labels: List[int]) -> Dict:
 # 主入口
 # ============================================================
 
+def _merge_small_clusters(features: np.ndarray, labels: List[int],
+                          min_cluster_size: int = 2,
+                          metric: str = 'euclidean') -> List[int]:
+    """把成员数 < min_cluster_size 的簇合并到最近的大簇（最近质心）。
+
+    Singleton/小簇通常由过分割产生，没有生物学意义；此函数把它们重新
+    分配到距离最近的大簇，收敛到真实的家族数。
+    metric: 'euclidean'（结构轮廓特征）或 'cosine'（k-mer 特征）。
+    """
+    from collections import Counter
+    if metric == 'cosine':
+        from sklearn.metrics.pairwise import cosine_distances as _dist
+    else:
+        from sklearn.metrics.pairwise import euclidean_distances as _dist
+
+    labels = np.array(labels)
+    counts = Counter(labels.tolist())
+    small = [lbl for lbl, c in counts.items() if c < min_cluster_size]
+    large = [lbl for lbl, c in counts.items() if c >= min_cluster_size]
+
+    if not small or not large:
+        return labels.tolist()
+
+    centroids = {lbl: features[labels == lbl].mean(axis=0) for lbl in large}
+
+    new_labels = labels.copy()
+    n_merged = 0
+    for lbl in small:
+        mask = labels == lbl
+        for idx in np.where(mask)[0]:
+            vec = features[idx].reshape(1, -1)
+            best_lbl = min(centroids.keys(),
+                           key=lambda c: float(_dist(
+                               vec, centroids[c].reshape(1, -1))[0][0]))
+            new_labels[idx] = best_lbl
+            n_merged += 1
+
+    if n_merged:
+        print(f'[MergeSmallClusters] merged {n_merged} sequences from '
+              f'{len(small)} small clusters (< {min_cluster_size} members)', flush=True)
+
+    return new_labels.tolist()
+
+
 def cluster_by_profile(sequences: List[str],
                        dot_brackets: List[str],
                        read_counts: List[int] = None,
@@ -498,6 +542,7 @@ def cluster_by_profile(sequences: List[str],
                        abundance_threshold: int = 0,
                        use_abundance_weight: bool = False,
                        weighting_scheme: str = 'off',
+                       min_cluster_size: int = 2,
                        ) -> Dict:
     """
     Structure Profile 聚类主入口。
@@ -589,13 +634,18 @@ def cluster_by_profile(sequences: List[str],
                                      weighting_scheme=weighting_scheme)
     labels = cluster_result['labels']
 
+    # Step 3.5: 合并小簇（min_cluster_size 后处理，清除 singleton）
+    if min_cluster_size > 1:
+        labels = _merge_small_clusters(features, labels, min_cluster_size)
+
     result = {
         'success': True,
         'method': cluster_result['method'],
-        'n_clusters': cluster_result['n_clusters'],
+        'n_clusters': len(set(labels)),
         'n_sequences': n,
         'labels': labels,
-        'metrics': cluster_result['metrics'],
+        'metrics': (_compute_cluster_metrics(features, labels)
+                    if min_cluster_size > 1 else cluster_result['metrics']),
         'all_results': cluster_result.get('all_results', []),
         'weightingScheme': weighting_scheme,
     }
