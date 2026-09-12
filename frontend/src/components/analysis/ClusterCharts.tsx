@@ -536,8 +536,8 @@ function ClusterSizeChart({ data }: { data: SequenceCluster[] }) {
    ═══════════════════════════════════════════════════════════════════ */
 
 function HeatmapChart({ data }: { data: SequenceCluster[] }) {
-  const metrics = ['cGcC', 'G4Hunter', 'G4NN', 'MFE'] as const
-  const thresholds = [4.5, 0.9, 0.5, -10] // MFE threshold: stable if <= -10
+  const metrics = ['cGcC', 'G4Hunter', 'G4NN', 'ΔMFE'] as const
+  const thresholds = [4.5, 0.9, 0.5, 0] // ΔMFE threshold: < 0 = G4
 
   const topClusters = data.slice(0, Math.min(20, data.length))
 
@@ -548,14 +548,14 @@ function HeatmapChart({ data }: { data: SequenceCluster[] }) {
         c.cGcC ?? 0,
         c.g4Hunter ?? 0,
         c.g4NN ?? 0,
-        -(c.rnaFold?.mfe ?? 0), // Negate so higher = more stable
+        -((c.rnaFold?.mfe ?? 0) - (c.rnaFoldNoG4?.mfe ?? 0)), // -ΔMFE, higher = stronger G4
       ]
       // Normalize to 0-1 based on typical ranges
       return [
         Math.min(vals[0] / 20, 1), // cGcC: 0-20 range
         Math.min(Math.abs(vals[1]) / 2, 1), // G4H: 0-2 range
         vals[2], // G4NN: already 0-1
-        Math.min(vals[3] / 25, 1), // MFE: 0-25 range (negated)
+        Math.min(vals[3] / 25, 1), // ΔMFE: 0-25 range (negated)
       ]
     })
   }, [topClusters])
@@ -600,7 +600,7 @@ function HeatmapChart({ data }: { data: SequenceCluster[] }) {
           {metrics.map((m, col) => {
             const cx = labelWidth + col * cellSize + cellSize / 2
             const cy = headerHeight - 8
-            const label = col === 3 ? `${m} \u2264-10` : `${m} >${thresholds[col]}`
+            const label = col === 3 ? `${m} <0` : `${m} >${thresholds[col]}`
             return (
               <text
                 key={m}
@@ -634,10 +634,10 @@ function HeatmapChart({ data }: { data: SequenceCluster[] }) {
                   cluster.cGcC ?? 0,
                   cluster.g4Hunter ?? 0,
                   cluster.g4NN ?? 0,
-                  cluster.rnaFold?.mfe ?? 0,
+                  (cluster.rnaFold?.mfe ?? 0) - (cluster.rnaFoldNoG4?.mfe ?? 0),
                 ]
                 const passesThreshold = col === 3
-                  ? rawVals[col] <= thresholds[col]
+                  ? rawVals[col] < thresholds[col]
                   : rawVals[col] > thresholds[col]
 
                 return (
