@@ -725,8 +725,7 @@ def compute_optimal_clustering(sequences: list, method: str = 'auto', max_cluste
                                 do_permutation_test: bool = False, n_permutations: int = 1000,
                                 selection_criterion: str = 'silhouette',
                                 read_counts: list = None,
-                                abundance_threshold: int = 0,
-                                min_cluster_size: int = 2) -> dict:
+                                abundance_threshold: int = 0) -> dict:
     """
     Compute optimal clustering using k-mer features + ML algorithms.
     Enhanced with GMM, Spectral Clustering.
@@ -934,12 +933,6 @@ def compute_optimal_clustering(sequences: list, method: str = 'auto', max_cluste
         best_k = min(3, n)
         best_score = 0.0
 
-    # Merge small clusters (min_cluster_size post-processing)
-    if min_cluster_size > 1:
-        from profile_cluster import _merge_small_clusters
-        best_labels = np.array(_merge_small_clusters(
-            X, best_labels.tolist(), min_cluster_size, metric='cosine'))
-
     # Convert to 1-based cluster IDs, sorted by cluster size (largest first)
     from collections import Counter as Ctr
     label_counts = Ctr(best_labels.tolist())
@@ -969,7 +962,7 @@ def compute_optimal_clustering(sequences: list, method: str = 'auto', max_cluste
     result = {
         'success': True,
         'clusterIds': final_ids,
-        'numClusters': len(set(final_ids)),
+        'numClusters': best_k,
         'method': best_method,
         'silhouetteScore': float(best_score),
         'quality': quality,
@@ -1186,7 +1179,6 @@ class AnalysisHandler(BaseHTTPRequestHandler):
         abundance_threshold = data.get('abundanceThreshold', 0)
         use_abundance_weight = data.get('useAbundanceWeight', False)
         weighting_scheme = data.get('weightingScheme', 'off')
-        min_cluster_size = data.get('minClusterSize', 2)
         return compute_optimal_clustering(sequences, method, max_clusters,
                                           min_clusters,
                                           forward_primer, reverse_primer,
@@ -1195,8 +1187,7 @@ class AnalysisHandler(BaseHTTPRequestHandler):
                                           n_permutations=n_perm,
                                           selection_criterion=selection_criterion,
                                           read_counts=read_counts,
-                                          abundance_threshold=abundance_threshold,
-                                          min_cluster_size=min_cluster_size)
+                                          abundance_threshold=abundance_threshold)
 
     def handle_profile_cluster(self, sequences, cluster_ids, data):
         """Structure Profile clustering with permutation test + abundance modeling."""
@@ -1211,7 +1202,6 @@ class AnalysisHandler(BaseHTTPRequestHandler):
         abundance_threshold = data.get('abundanceThreshold', 0)
         use_abundance_weight = data.get('useAbundanceWeight', False)
         weighting_scheme = data.get('weightingScheme', 'off')
-        min_cluster_size = data.get('minClusterSize', 2)
 
         # 如果没有提供 dot-brackets，通过 ViennaRNA 微服务预测
         if not dot_brackets:
@@ -1247,7 +1237,6 @@ class AnalysisHandler(BaseHTTPRequestHandler):
             abundance_threshold=abundance_threshold,
             use_abundance_weight=use_abundance_weight,
             weighting_scheme=weighting_scheme,
-            min_cluster_size=min_cluster_size,
         )
         # Remove debug-only field that causes JSON circular refs
         result.pop('all_results', None)
