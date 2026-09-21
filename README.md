@@ -8,7 +8,7 @@ ORACLE (Oligonucleotide Read Analysis & Candidate Library Explorer) takes your N
 
 - **Two clustering modes**: Auto-Optimal ML (k-mer features, auto-selects best algorithm & K) and Sequence Identity (Levenshtein edit distance)
 - **Multi-algorithm evaluation**: KMeans, Hierarchical, GMM, Spectral, DBSCAN, HDBSCAN — optimal partition selected by silhouette/DB/CH criterion
-- **Statistical validation**: Permutation testing (1000 iterations) for cluster significance
+- **Statistical validation**: Permutation testing (1,000 iterations, p < 0.05) for cluster significance (see [Analysis notes](#analysis-notes))
 - **G4 screening**: G4Hunter and cGcC scoring with G4 risk classification (plus optional G4NN, see [scripts/fetch_g4nn_model.md](scripts/fetch_g4nn_model.md))
 - **RNA structure**: ViennaRNA folding with MFE and dot-bracket structure prediction
 - **Interactive visualization**: t-SNE, UMAP, PCA cluster maps, silhouette waterfall, force-directed network graph
@@ -30,6 +30,30 @@ FASTA files. ORACLE parses read counts automatically from the last numeric value
 ## Documentation
 
 Full documentation with mode descriptions, result interpretation, and algorithm reference is available at the [User Guide](https://oracle.oligocluster.com/docs) on the platform.
+
+## Analysis notes
+
+**Clustering methods and criterion.** Auto-Optimal ML screens five clustering methods across four
+algorithmic families (agglomerative hierarchical with average- and Ward-linkage variants, k-means,
+Gaussian mixture models, and spectral clustering) and selects the optimal partition by maximizing
+the silhouette score. The Structure Profile mode additionally includes density-based clustering
+(HDBSCAN) and defaults to the Davies-Bouldin criterion. Because SELEX sequence space is continuous
+(aptamer families form gradients of related variants rather than discrete, well-separated groups),
+the internal silhouette/Davies-Bouldin scores are used only to rank candidate partitions; cluster
+significance is confirmed by permutation testing, which serves as the definitive statistical
+criterion.
+
+**Permutation iterations and large-input guardrails.** Permutation tests run 1,000 iterations by
+default. To stay within server time limits on large inputs, ORACLE applies guardrails: above 2,000
+sequences the permutation test is capped at 200 iterations, above 1,500 sequences spectral
+clustering is skipped (O(n³) time), and above 2,500 sequences hierarchical (average-linkage)
+clustering is skipped (O(n²) memory). The analyses in the associated publication used 500 sequences
+per round, so all defaults apply (1,000 permutations, all algorithms evaluated).
+
+**ViennaRNA version.** The RNAfold microservice reports ViennaRNA 2.7.2 at `GET /health`. The
+citation to "ViennaRNA Package 2.0" in the Acknowledgements refers to the 2011 Lorenz et al.
+publication title, not the installed software version; G-quadruplex folding (the `gquad` model
+detail) requires ViennaRNA ≥ 2.1.
 
 ## Citing
 
